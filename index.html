@@ -1,0 +1,1428 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Breakout Scanner</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap');
+
+  :root {
+    --bg: #050810;
+    --surface: #0c1220;
+    --surface2: #111827;
+    --border: #1e2d45;
+    --accent: #00e5ff;
+    --accent2: #ff6b35;
+    --green: #00ff88;
+    --red: #ff3366;
+    --gold: #ffd700;
+    --text: #e2e8f0;
+    --muted: #4a5568;
+    --glow: 0 0 20px rgba(0,229,255,0.3);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Animated background grid */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: 
+      linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .app {
+    position: relative;
+    z-index: 1;
+    max-width: 420px;
+    margin: 0 auto;
+    padding: 16px;
+  }
+
+  /* Header */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .logo {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 18px;
+    letter-spacing: -0.5px;
+  }
+
+  .logo span { color: var(--accent); }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 10px var(--green);
+    animation: pulse 2s infinite;
+  }
+
+  .status-dot.inactive { background: var(--muted); box-shadow: none; animation: none; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.8); }
+  }
+
+  .market-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  /* Index cards */
+  .indices {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+
+  .index-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .index-card::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--accent);
+  }
+
+  .index-card.sp::after { background: var(--accent); }
+  .index-card.dj::after { background: var(--gold); }
+
+  .index-name {
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+
+  .index-value {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 20px;
+    margin-bottom: 2px;
+  }
+
+  .index-change {
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .index-change.up { color: var(--green); }
+  .index-change.down { color: var(--red); }
+
+  /* Scanner controls */
+  .controls {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 20px;
+  }
+
+  .controls-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+
+  .control-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+
+  .control-label {
+    font-size: 12px;
+    color: var(--text);
+  }
+
+  .control-sub {
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  input[type="number"] {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--accent);
+    font-family: 'Space Mono', monospace;
+    font-size: 14px;
+    padding: 6px 10px;
+    width: 80px;
+    text-align: right;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  input[type="number"]:focus { border-color: var(--accent); box-shadow: var(--glow); }
+
+  /* Toggle switch */
+  .toggle {
+    position: relative;
+    width: 44px;
+    height: 24px;
+  }
+
+  .toggle input { opacity: 0; width: 0; height: 0; }
+
+  .toggle-track {
+    position: absolute;
+    inset: 0;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.3s;
+  }
+
+  .toggle input:checked + .toggle-track {
+    background: var(--accent);
+    border-color: var(--accent);
+    box-shadow: 0 0 12px rgba(0,229,255,0.4);
+  }
+
+  .toggle-track::after {
+    content: '';
+    position: absolute;
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background: white;
+    top: 3px; left: 3px;
+    transition: transform 0.3s;
+  }
+
+  .toggle input:checked + .toggle-track::after { transform: translateX(20px); }
+
+  /* Scan button */
+  .scan-btn {
+    width: 100%;
+    padding: 14px;
+    background: transparent;
+    border: 1px solid var(--accent);
+    border-radius: 10px;
+    color: var(--accent);
+    font-family: 'Space Mono', monospace;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s;
+    margin-top: 4px;
+  }
+
+  .scan-btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--accent);
+    transform: translateX(-100%);
+    transition: transform 0.3s;
+    z-index: 0;
+  }
+
+  .scan-btn:hover::before, .scan-btn.loading::before { transform: translateX(0); }
+  .scan-btn:hover, .scan-btn.loading { color: var(--bg); }
+  .scan-btn span { position: relative; z-index: 1; }
+
+  .scan-btn.loading span::after {
+    content: '...';
+    animation: dots 1.2s infinite;
+  }
+
+  @keyframes dots {
+    0% { content: '.'; }
+    33% { content: '..'; }
+    66% { content: '...'; }
+  }
+
+  /* Results */
+  .results-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+
+  .results-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .results-count {
+    font-size: 11px;
+    color: var(--accent);
+    background: rgba(0,229,255,0.1);
+    border: 1px solid rgba(0,229,255,0.2);
+    border-radius: 20px;
+    padding: 2px 10px;
+  }
+
+  /* Stock card */
+  .stock-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+    margin-bottom: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    animation: slideIn 0.4s ease forwards;
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  @keyframes slideIn {
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .stock-card:hover { border-color: var(--accent); box-shadow: var(--glow); }
+
+  .stock-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+
+  .stock-ticker {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 20px;
+    color: var(--accent);
+    letter-spacing: -0.5px;
+  }
+
+  .stock-name {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  .stock-index-badge {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    border: 1px solid;
+  }
+
+  .badge-sp { color: var(--accent); border-color: rgba(0,229,255,0.3); background: rgba(0,229,255,0.08); }
+  .badge-dj { color: var(--gold); border-color: rgba(255,215,0,0.3); background: rgba(255,215,0,0.08); }
+  .badge-st { color: #00ccff; border-color: rgba(0,204,255,0.3); background: rgba(0,204,255,0.08); }
+
+  .stock-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .metric {
+    background: var(--surface2);
+    border-radius: 6px;
+    padding: 8px;
+    text-align: center;
+  }
+
+  .metric-label {
+    font-size: 9px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+  }
+
+  .metric-value {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  .metric-value.highlight { color: var(--gold); }
+  .metric-value.green { color: var(--green); }
+
+  /* Signal badge */
+  .signal-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(0,255,136,0.06);
+    border: 1px solid rgba(0,255,136,0.2);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-bottom: 12px;
+  }
+
+  .signal-icon { font-size: 14px; }
+  .signal-text { font-size: 11px; color: var(--green); font-weight: 700; }
+  .signal-sub { font-size: 10px; color: var(--muted); margin-left: auto; }
+
+  /* Mini chart */
+  .chart-container {
+    display: none;
+    margin-top: 12px;
+    background: var(--surface2);
+    border-radius: 8px;
+    padding: 10px;
+  }
+
+  .chart-container.visible { display: block; animation: fadeIn 0.3s ease; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+  .chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+
+  .chart-title { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+  .chart-close { font-size: 16px; color: var(--muted); cursor: pointer; background: none; border: none; color: var(--muted); }
+
+  canvas { max-height: 160px; }
+
+  /* Volume bar */
+  .volume-section { margin-top: 10px; }
+  .vol-label { font-size: 10px; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+  .vol-bar-wrap {
+    background: var(--surface);
+    border-radius: 4px;
+    height: 8px;
+    overflow: hidden;
+    margin-bottom: 4px;
+  }
+
+  .vol-bar {
+    height: 100%;
+    border-radius: 4px;
+    position: relative;
+    transition: width 1s ease;
+  }
+
+  .vol-bar.avg { background: var(--muted); width: 0; }
+  .vol-bar.today { background: var(--accent2); width: 0; box-shadow: 0 0 8px rgba(255,107,53,0.5); }
+  .vol-legend { display: flex; gap: 12px; font-size: 9px; color: var(--muted); }
+  .vol-legend span { display: flex; align-items: center; gap: 4px; }
+  .vol-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+
+  /* Notification toast */
+  .toast {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%) translateY(-80px);
+    background: var(--green);
+    color: var(--bg);
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 12px 20px;
+    border-radius: 30px;
+    z-index: 1000;
+    transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    box-shadow: 0 4px 30px rgba(0,255,136,0.4);
+    white-space: nowrap;
+  }
+
+  .toast.show { transform: translateX(-50%) translateY(0); }
+
+  /* Empty state */
+  .empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--muted);
+  }
+
+  .empty-icon { font-size: 40px; margin-bottom: 12px; opacity: 0.4; }
+  .empty-text { font-size: 12px; line-height: 1.6; }
+
+  /* Last scan */
+  .last-scan {
+    text-align: center;
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* Notification permission */
+  .notif-banner {
+    background: rgba(255,215,0,0.08);
+    border: 1px solid rgba(255,215,0,0.25);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .notif-banner-text { font-size: 11px; color: var(--gold); flex: 1; line-height: 1.4; }
+  .notif-btn {
+    background: var(--gold);
+    color: var(--bg);
+    border: none;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+
+<div id="toast" class="toast">🚨 Breakout detekterad!</div>
+
+<div class="app">
+  <!-- Header -->
+  <div class="header">
+    <div class="logo">BREAK<span>OUT</span> <span style="font-size:10px;color:#aab4c8;font-weight:400;">v1.2</span></div>
+    <div class="market-status">
+      <div id="statusDot" class="status-dot inactive"></div>
+      <span id="statusText">Börsen stängd</span>
+    </div>
+  </div>
+
+  <!-- Notification banner -->
+  <div id="notifBanner" class="notif-banner" style="display:none">
+    <span>🔔</span>
+    <div class="notif-banner-text">Aktivera notiser för att få varningar vid breakout</div>
+    <button class="notif-btn" onclick="requestNotifications()">Aktivera</button>
+  </div>
+
+  <!-- Index cards -->
+  <div class="indices">
+    <div class="index-card sp">
+      <div class="index-name">S&P 500 <span style="font-size:8px;color:var(--muted);">via SPY ETF</span></div>
+      <div class="index-value" id="spValue">—</div>
+      <div class="index-change" id="spChange" style="color:var(--muted);">Hämtar...</div>
+    </div>
+    <div class="index-card dj">
+      <div class="index-name">DOW JONES <span style="font-size:8px;color:var(--muted);">via DIA ETF</span></div>
+      <div class="index-value" id="djValue">—</div>
+      <div class="index-change" id="djChange" style="color:var(--muted);">Hämtar...</div>
+    </div>
+  </div>
+
+  <!-- Stockholm index card -->
+  <div style="margin-bottom:20px;">
+    <div class="index-card" style="border-top:2px solid #00ccff;">
+      <div class="index-name">STOCKHOLM <span style="font-size:8px;color:var(--muted);">via EWD ETF</span></div>
+      <div class="index-value" id="stValue">—</div>
+      <div class="index-change" id="stChange" style="color:var(--muted);">Hämtar...</div>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <div class="controls-title">⚙ Skannerinställningar</div>
+
+    <!-- Scan mode tabs -->
+    <div style="display:flex; gap:8px; margin-bottom:16px;">
+      <button id="tab-breakout" onclick="setMode('breakout')" style="flex:1; padding:8px; border-radius:8px; border:1px solid var(--accent); background:var(--accent); color:var(--bg); font-family:'Space Mono',monospace; font-size:10px; font-weight:700; letter-spacing:1px; cursor:pointer;">
+        🚨 BREAKOUT
+      </button>
+      <button id="tab-consol" onclick="setMode('consol')" style="flex:1; padding:8px; border-radius:8px; border:1px solid var(--border); background:transparent; color:var(--muted); font-family:'Space Mono',monospace; font-size:10px; font-weight:700; letter-spacing:1px; cursor:pointer;">
+        📦 KONSOLIDERING
+      </button>
+    </div>
+
+    <div class="control-row">
+      <div>
+        <div class="control-label">Dagar för högsta</div>
+        <div class="control-sub">Antal handelsdagar</div>
+      </div>
+      <input type="number" id="daysInput" value="100" min="10" max="252">
+    </div>
+
+    <div class="control-row">
+      <div>
+        <div class="control-label">Volymfaktor</div>
+        <div class="control-sub">× normalvolym</div>
+      </div>
+      <input type="number" id="volInput" value="1.5" min="1.1" max="5" step="0.1">
+    </div>
+
+    <div class="control-row">
+      <div>
+        <div class="control-label">Autoskanning</div>
+        <div class="control-sub">Kör efter börsens stängning</div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="autoScan" checked onchange="toggleAuto()">
+        <div class="toggle-track"></div>
+      </label>
+    </div>
+
+    <div class="control-row">
+      <div>
+        <div class="control-label">Push-notiser</div>
+        <div class="control-sub">Vid nya breakouts</div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="pushToggle" onchange="togglePush()">
+        <div class="toggle-track"></div>
+      </label>
+    </div>
+
+    <!-- Consolidation settings (hidden by default) -->
+    <div id="consolSettings" style="display:none; border-top:1px solid var(--border); padding-top:14px; margin-top:4px;">
+      <div class="control-row">
+        <div>
+          <div class="control-label">Konsolideringsdagar</div>
+          <div class="control-sub">Antal dagar sidledes</div>
+        </div>
+        <input type="number" id="consolDays" value="20" min="5" max="60">
+      </div>
+      <div class="control-row">
+        <div>
+          <div class="control-label">Max intervall</div>
+          <div class="control-sub">% mellan topp och botten</div>
+        </div>
+        <input type="number" id="consolRange" value="10" min="3" max="25" step="0.5">
+      </div>
+    </div>
+
+    <button onclick="debugAMD()" style="width:100%; padding:10px; margin-bottom:8px; background:transparent; border:1px solid var(--accent2); border-radius:10px; color:var(--accent2); font-family:'Space Mono',monospace; font-size:11px; cursor:pointer;">
+      🔍 DEBUGGA AMD
+    </button>
+
+    <button class="scan-btn" id="scanBtn" onclick="runScan()">
+      <span>▶ Kör skanning</span>
+    </button>
+  </div>
+
+  <!-- API Status banner -->
+  <div id="apiBanner" style="display:none; border-radius:10px; padding:12px 14px; margin-bottom:16px; align-items:center; gap:10px; font-size:11px; border:1px solid; line-height:1.5;"></div>
+
+  <!-- Scan progress -->
+  <div id="scanProgress" style="display:none; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:12px 14px; margin-bottom:16px; font-size:11px; color:var(--muted);">
+    <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+      <span style="color:var(--accent); font-weight:700;">SKANNAR</span>
+      <span id="progressText">0 / 0 aktier</span>
+    </div>
+    <div style="background:var(--surface2); border-radius:4px; height:6px; overflow:hidden;">
+      <div id="progressBar" style="height:100%; background:var(--accent); width:0%; transition:width 0.3s; border-radius:4px;"></div>
+    </div>
+  </div>
+
+  <!-- Results -->
+  <div class="results-header">
+    <div class="results-title">Breakouts</div>
+    <div class="results-count" id="resultsCount">0 hittade</div>
+  </div>
+
+  <div id="resultsList">
+    <div class="empty-state">
+      <div class="empty-icon">📡</div>
+      <div class="empty-text">Kör en skanning för att hitta<br>aktier som nått 100-dagars högsta<br>med ovanlig volym</div>
+    </div>
+  </div>
+
+  <div class="last-scan" id="lastScan">Senaste skanning: —</div>
+</div>
+
+<script>
+// ==========================================
+// CONFIG
+// ==========================================
+let scanMode = 'breakout'; // 'breakout' eller 'consol'
+
+function setMode(mode) {
+  scanMode = mode;
+  const breakoutBtn = document.getElementById('tab-breakout');
+  const consolBtn   = document.getElementById('tab-consol');
+  const consolSettings = document.getElementById('consolSettings');
+  const breakoutSettings = document.querySelectorAll('.breakout-only');
+
+  if (mode === 'breakout') {
+    breakoutBtn.style.background = 'var(--accent)';
+    breakoutBtn.style.color = 'var(--bg)';
+    breakoutBtn.style.borderColor = 'var(--accent)';
+    consolBtn.style.background = 'transparent';
+    consolBtn.style.color = 'var(--muted)';
+    consolBtn.style.borderColor = 'var(--border)';
+    consolSettings.style.display = 'none';
+  } else {
+    consolBtn.style.background = 'var(--green)';
+    consolBtn.style.color = 'var(--bg)';
+    consolBtn.style.borderColor = 'var(--green)';
+    breakoutBtn.style.background = 'transparent';
+    breakoutBtn.style.color = 'var(--muted)';
+    breakoutBtn.style.borderColor = 'var(--border)';
+    consolSettings.style.display = 'block';
+  }
+}
+
+// Finnhub används bara för indexvärden (SPY, DIA, EWD) — aktiedata hämtas från Render
+const FINNHUB_KEY = 'd7tjpi9r01qlbd3ken3gd7tjpi9r01qlbd3ken40';
+const API_URL = 'https://breakout-api-d8fh.onrender.com'; // Render backend — aktuell aktiedata
+const TD_KEY = '7bf959615fe04daa9ee87980fe49e679'; // Twelve Data — historisk data
+
+// Fullständiga S&P 500 topp 50 + alla 30 Dow Jones-aktier
+// Alla S&P 500 aktier
+const SP500_SAMPLE = [
+  'MMM','AOS','ABT','ABBV','ACN','ADBE','AMD','AES','AFL','A','APD','ABNB','AKAM','ALB','ARE','ALGN','ALLE','LNT','ALL','GOOGL','GOOG','MO','AMZN','AMCR','AEE','AAL','AEP','AXP','AIG','AMT','AWK','AMP','AME','AMGN','APH','ADI','ANSS','AON','APA','AAPL','AMAT','APTV','ACGL','ADM','ANET','AJG','AIZ','T','ATO','ADSK','ADP','AZO','AVB','AVY','AXON','BKR','BALL','BAC','BK','BBWI','BAX','BDX','WRB','BBY','BIO','TECH','BIIB','BLK','BX','BA','BCR','BMY','AVGO','BR','BRO','BF.B','BLDR','BG','CDNS','CZR','CPT','CPB','COF','CAH','KMX','CCL','CARR','CTLT','CAT','CBOE','CBRE','CDW','CE','COR','CNC','CNP','CF','CHRW','CRL','SCHW','CHTR','CVX','CMG','CB','CHD','CI','CINF','CTAS','CSCO','C','CFG','CLX','CME','CMS','KO','CTSH','CL','CMCSA','CMA','CAG','COP','ED','STZ','CEG','COO','CPRT','GLW','CPAY','CTVA','CSGP','COST','CTRA','CCI','CSX','CMI','CVS','DHI','DHR','DRI','DVA','DAY','DECK','DE','DAL','DVN','DXCM','FANG','DLR','DFS','DG','DLTR','D','DPZ','DOV','DOW','DHC','DTE','DUK','DD','EMN','ETN','EBAY','ECL','EIX','EW','EA','ELV','LLY','EMR','ENPH','ETR','EOG','EPAM','EQT','EFX','EQIX','EQR','ESS','EL','ETSY','EG','EVRST','ES','EXC','EXPE','EXPD','EXR','XOM','FFIV','FDS','FICO','FAST','FRT','FDX','FIS','FITB','FSLR','FE','FI','FMC','F','FTNT','FTV','FOXA','FOX','BEN','FCX','GRMN','IT','GE','GEHC','GEV','GEN','GNRC','GD','GIS','GM','GPC','GILD','GS','HAL','HIG','HAS','HCA','DOC','HSIC','HSY','HES','HPE','HLT','HOLX','HD','HON','HRL','HST','HWM','HPQ','HUBB','HUM','HBAN','HII','IBM','IEX','IDXX','ITW','INCY','IR','PODD','INTC','ICE','IFF','IP','IPG','INTU','ISRG','IVZ','INVH','IQV','IRM','JBAL','JKHY','J','JBL','JNPR','JPM','JNJ','JCI','AJG','JNPR','K','KVUE','KDP','KEY','KEYS','KMB','KIM','KMI','KLAC','KHC','KR','LHX','LH','LRCX','LW','LVS','LDOS','LEN','LKQ','LLY','LMT','L','LOW','LULU','LYB','MTB','MRO','MPC','MKTX','MAR','MMC','MLM','MAS','MA','MTCH','MKC','MCD','MCK','MDT','MRK','META','MET','MTD','MGM','MCHP','MU','MSFT','MAA','MRNA','MHK','MOH','TAP','MDLZ','MPWR','MNST','MCO','MS','MOS','MSI','MSCI','NDAQ','NTAP','NFLX','NEM','NWSA','NWS','NEE','NKE','NI','NDSN','NSC','NTRS','NOC','NCLH','NRG','NUE','NVDA','NVR','NXPI','ORLY','OXY','ODFL','OMC','ON','OKE','ORCL','OTIS','PCAR','PKG','PANW','PH','PAYX','PAYC','PYPL','PNR','PEP','PFE','PCG','PM','PSX','PNW','PXD','PNC','POOL','PPG','PPL','PFG','PG','PGR','PRU','PEG','PTC','PSA','PHM','QRVO','PWR','QCOM','DGX','RL','RJF','RTX','O','REG','REGN','RF','RSG','RMD','RVTY','ROK','ROL','ROP','ROST','RCL','SPGI','CRM','SBAC','SLB','STX','SRE','NOW','SHW','SPG','SWKS','SJM','SNA','SOLV','SO','LUV','SWK','SBUX','STT','STLD','STE','SYK','SMCI','SYF','SNPS','SYY','TMUS','TROW','TTWO','TPR','TRGP','TGT','TEL','TDY','TFX','TER','TSLA','TXN','TXT','TMO','TJX','TSCO','TT','TDG','TRV','TRMB','TFC','TYL','TSN','USB','UBER','UDR','ULTA','UNP','UAL','UPS','URI','UNH','UHS','VLO','VTR','VRSN','VRSK','VZ','VRTX','VLTO','V','VST','VNO','VMC','WRB','GWW','WAB','WBA','WMT','DIS','WBD','WM','WAT','WEC','WFC','WELL','WST','WDC','WRK','WY','WHR','WMB','WTW','WYNN','XEL','XYL','YUM','ZBRA','ZBH','ZTS'
+];
+const DOW_TICKERS = [
+  'AAPL','MSFT','UNH','GS','HD','MCD','CAT','V','AMGN','TRV',
+  'AXP','HON','JPM','IBM','BA','MMM','DIS','JNJ','CVX','MRK',
+  'WMT','NKE','PG','CRM','CSCO','INTC','VZ','KO','DOW','WBA'
+];
+
+// Stockholmsbörsen Large Cap + Mid Cap
+const STOCKHOLM_TICKERS = [
+  // Large Cap
+  'ERIC-B.ST','VOLV-B.ST','SAND.ST','SEB-A.ST','SWED-A.ST','HM-B.ST',
+  'ATCO-A.ST','ATCO-B.ST','SCA-B.ST','SKF-B.ST','SSAB-A.ST','SSAB-B.ST',
+  'INVE-A.ST','INVE-B.ST','NDA-SE.ST','ALFA.ST','ALIV-SDB.ST','ASSA-B.ST',
+  'AZN.ST','BOLS.ST','BOL.ST','CAST.ST','CLAS-B.ST','EKTA-B.ST',
+  'EPI-A.ST','ESSITY-B.ST','FABG.ST','GETI-B.ST','HEXA-B.ST','HUSQ-B.ST',
+  'INDU-A.ST','KINV-B.ST','LATO-B.ST','LIFCO-B.ST','LOOMIS.ST','LUNDBERGF.ST',
+  'NIBE-B.ST','NOKI-FI.ST','PEAB-B.ST','SAGA-B.ST','SAAB-B.ST','SECU-B.ST',
+  'SKA-B.ST','SOBI.ST','SWMA.ST','TELE2-B.ST','TELIA.ST','THULE.ST',
+  'TOBII.ST','TREL-B.ST','VNE.ST','WALL-B.ST','WIHL.ST','XANO-B.ST',
+  // Mid Cap
+  'AAK.ST','ADDV-B.ST','ALIG.ST','AMBEA.ST','ANOT.ST','AXFO.ST',
+  'BEIA-B.ST','BERG-B.ST','BILI-A.ST','BIOG-B.ST','BOOZT.ST','BUFAB.ST',
+  'BULL.ST','CATE.ST','COLL.ST','DIOS.ST','DUNI.ST','ELUX-B.ST',
+  'ENEA.ST','EPRO-B.ST','FAGC.ST','FASTG.ST','FPAR-A.ST','HANZA.ST',
+  'HEMS.ST','HEXP.ST','HUFV-A.ST','IAR-B.ST','IFS.ST','IPCO.ST',
+  'JM.ST','KLOV-B.ST','KNOW-B.ST','LUND-B.ST','MIPS.ST','MOMENT.ST',
+  'NOLA-B.ST','NOTE.ST','NYFOSA.ST','OEM-B.ST','ONCO.ST','OPCO.ST',
+  'PNDX-B.ST','RATO-B.ST','RECI-B.ST','RESURS.ST','RROS.ST','SAVO.ST',
+  'SFAB.ST','SGRO.ST','SHOT.ST','SINCH.ST','SWECO-B.ST','SYSR.ST',
+  'TROAX.ST','VBG-B.ST','VITR.ST','VOLCAR-B.ST','XVIVO.ST','ZOUND.ST'
+];
+
+let autoTimer = null;
+let notifGranted = false;
+let scanResults = [];
+
+// ==========================================
+// INIT
+// ==========================================
+document.addEventListener('DOMContentLoaded', () => {
+  checkNotifPermission();
+  updateMarketStatus();
+  setInterval(updateMarketStatus, 60000);
+  updateIndexData();
+  if (document.getElementById('autoScan').checked) scheduleAutoScan();
+
+  // Demo: animate index values
+  animateValue('spValue', 5600, 5648, ' ');
+  animateValue('djValue', 42000, 42114, ' ');
+});
+
+function animateValue(id, start, end, suffix) {
+  const el = document.getElementById(id);
+  const duration = 1000;
+  const startTime = performance.now();
+  function update(now) {
+    const progress = Math.min((now - startTime) / duration, 1);
+    const val = Math.floor(start + (end - start) * easeOut(progress));
+    el.textContent = val.toLocaleString('sv-SE');
+    if (progress < 1) requestAnimationFrame(update);
+  }
+  requestAnimationFrame(update);
+}
+
+function easeOut(t) { return 1 - Math.pow(1 - t, 3); }
+
+// ==========================================
+// MARKET STATUS
+// ==========================================
+function updateMarketStatus() {
+  const now = new Date();
+  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+  const etTime = new Date(utc + (-5 * 3600000)); // ET (UTC-5, justeras ej för DST i demo)
+  const h = etTime.getHours(), m = etTime.getMinutes();
+  const day = etTime.getDay();
+  const isWeekday = day >= 1 && day <= 5;
+  const marketOpen = isWeekday && (h > 9 || (h === 9 && m >= 30)) && h < 16;
+
+  const dot = document.getElementById('statusDot');
+  const txt = document.getElementById('statusText');
+  if (marketOpen) {
+    dot.className = 'status-dot';
+    txt.textContent = 'Börsen öppen';
+    txt.style.color = 'var(--green)';
+  } else {
+    dot.className = 'status-dot inactive';
+    txt.textContent = 'Börsen stängd';
+    txt.style.color = '';
+  }
+}
+
+// ==========================================
+// NOTIFICATIONS
+// ==========================================
+function checkNotifPermission() {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'default') {
+    document.getElementById('notifBanner').style.display = 'flex';
+  } else if (Notification.permission === 'granted') {
+    notifGranted = true;
+    document.getElementById('pushToggle').checked = true;
+  }
+}
+
+function requestNotifications() {
+  Notification.requestPermission().then(perm => {
+    if (perm === 'granted') {
+      notifGranted = true;
+      document.getElementById('pushToggle').checked = true;
+      document.getElementById('notifBanner').style.display = 'none';
+      showToast('✅ Notiser aktiverade!');
+    }
+  });
+}
+
+function togglePush() {
+  if (document.getElementById('pushToggle').checked && !notifGranted) {
+    requestNotifications();
+    document.getElementById('pushToggle').checked = false;
+  }
+}
+
+function sendNotification(ticker, price, index) {
+  showToast(`🚨 ${ticker} bryter 100-dagars högsta!`);
+  if (notifGranted) {
+    new Notification(`🚨 Breakout: ${ticker}`, {
+      body: `${ticker} (${index}) nådde ${price} — 100-dagars högsta med hög volym!`,
+      icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">📈</text></svg>'
+    });
+  }
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3500);
+}
+
+// ==========================================
+// AUTO SCAN SCHEDULER
+// ==========================================
+function toggleAuto() {
+  const on = document.getElementById('autoScan').checked;
+  if (on) scheduleAutoScan();
+  else { clearTimeout(autoTimer); autoTimer = null; }
+}
+
+function scheduleAutoScan() {
+  // Kör kl 22:05 svensk tid (16:05 ET = börsen stängt)
+  const now = new Date();
+  let next = new Date();
+  next.setHours(22, 5, 0, 0);
+  if (next <= now) next.setDate(next.getDate() + 1);
+  const delay = next - now;
+  clearTimeout(autoTimer);
+  autoTimer = setTimeout(() => {
+    runScan();
+    scheduleAutoScan();
+  }, delay);
+  console.log(`Autoskanning schemalagd om ${Math.round(delay/60000)} min`);
+}
+
+// ==========================================
+// MAIN SCAN
+// ==========================================
+async function runScan() {
+  const btn = document.getElementById('scanBtn');
+  btn.classList.add('loading');
+  btn.querySelector('span').textContent = 'SKANNAR';
+
+  const days = parseInt(document.getElementById('daysInput').value) || 100;
+  const volFactor = parseFloat(document.getElementById('volInput').value) || 1.5;
+
+  const all = [
+    ...SP500_SAMPLE.map(t => ({ticker: t, index: 'S&P 500', badge: 'badge-sp'})),
+    ...DOW_TICKERS.filter(t => !SP500_SAMPLE.includes(t)).map(t => ({ticker: t, index: 'DOW', badge: 'badge-dj'})),
+    ...STOCKHOLM_TICKERS.map(t => ({ticker: t, index: 'STOCKHOLM', badge: 'badge-st'}))
+  ];
+
+  scanResults = [];
+
+  // Visa progress
+  const progressEl = document.getElementById('scanProgress');
+  const progressBar = document.getElementById('progressBar');
+  const progressText = document.getElementById('progressText');
+  progressEl.style.display = 'block';
+  progressBar.style.width = '0%';
+  progressText.textContent = `0 / ${all.length} aktier`;
+
+  // Testa API-anslutning först
+  const apiOk = await testApiConnection();
+  if (!apiOk) {
+    btn.classList.remove('loading');
+    btn.querySelector('span').textContent = '▶ Kör skanning';
+    progressEl.style.display = 'none';
+    return;
+  }
+
+  const consolDays  = parseInt(document.getElementById('consolDays').value) || 20;
+  const consolRange = parseFloat(document.getElementById('consolRange').value) || 10;
+
+  let scanned = 0;
+  for (const stock of all) {
+    await delay(500); // Render/yfinance: ingen rate limit
+    let result = null;
+    if (scanMode === 'breakout') {
+      result = await analyzeStock(stock.ticker, stock.index, stock.badge, days, volFactor);
+    } else {
+      result = await analyzeConsolidation(stock.ticker, stock.index, stock.badge, consolDays, consolRange, volFactor);
+    }
+    if (result) scanResults.push(result);
+    scanned++;
+    const pct = Math.round((scanned / all.length) * 100);
+    progressBar.style.width = pct + '%';
+    progressText.textContent = `${scanned} / ${all.length} aktier`;
+  }
+
+  scanResults.sort((a, b) => b.volRatio - a.volRatio);
+  progressEl.style.display = 'none';
+  showApiBanner('success', `✅ Klar — ${scanned} aktier skannade · ${scanResults.length} breakouts hittade`);
+  renderResults(scanResults);
+  updateLastScan();
+
+  btn.classList.remove('loading');
+  btn.querySelector('span').textContent = '▶ Kör skanning';
+
+  if (scanResults.length > 0) {
+    scanResults.slice(0, 3).forEach(r => sendNotification(r.ticker, r.price, r.index));
+  }
+}
+
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function testApiConnection() {
+  try {
+    const resp = await fetch(`${API_URL}/`);
+    if (!resp.ok) {
+      showApiBanner('error', `🔴 Anslutningsfel (${resp.status}) — kontrollera internetanslutningen`);
+      return false;
+    }
+    showApiBanner('success', '🟢 Ansluten till Breakout API — hämtar aktiedata...');
+    return true;
+  } catch (err) {
+    showApiBanner('error', '🔴 Kan inte nå Breakout API — kontrollera internetanslutningen');
+    return false;
+  }
+}
+
+function showApiBanner(type, msg) {
+  const banner = document.getElementById('apiBanner');
+  if (type === 'success') {
+    banner.style.cssText = 'display:flex; border-radius:10px; padding:12px 14px; margin-bottom:16px; align-items:center; gap:10px; font-size:11px; line-height:1.5; background:rgba(0,255,136,0.06); border:1px solid rgba(0,255,136,0.25); color:#00ff88;';
+  } else {
+    banner.style.cssText = 'display:flex; border-radius:10px; padding:12px 14px; margin-bottom:16px; align-items:center; gap:10px; font-size:11px; line-height:1.5; background:rgba(255,51,102,0.08); border:1px solid rgba(255,51,102,0.3); color:#ff3366;';
+  }
+  banner.textContent = msg;
+  if (type === 'success') setTimeout(() => { banner.style.display = 'none'; }, 8000);
+}
+
+// ==========================================
+// STOCK ANALYSIS — Alpha Vantage API (historisk data, fungerar från webbläsaren)
+// ==========================================
+async function analyzeStock(ticker, index, badge, days, volFactor) {
+  try {
+    // Render backend (yfinance — aktuell data)
+    const url = `https://breakout-api-d8fh.onrender.com/stock?symbol=${ticker}&days=${days}`;
+    const resp = await fetch(url);
+    if (!resp.ok) return null;
+    const json = await resp.json();
+
+    if (json.error || !json.closes || json.closes.length < days + 1) return null;
+
+    const closes     = json.closes;
+    const highs      = json.highs;
+    const volumes    = json.volumes;
+    const timestamps = json.timestamps;
+    const n = closes.length;
+
+    const todayClose     = closes[n - 1];
+    const todayVol       = volumes[n - 1];
+    const todayTimestamp = timestamps[n - 1];
+    const prevClose      = closes[n - 2];
+    const changePct      = ((todayClose - prevClose) / prevClose * 100);
+
+    // Kontrollera hur gammal datan är
+    const dataDate = new Date(todayTimestamp * 1000);
+    const now      = new Date();
+    const diffDays = Math.floor((now - dataDate) / (1000 * 3600 * 24));
+    const dateStr  = dataDate.toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' });
+    const isOld    = diffDays > 3;
+
+    // Jämför stängningspris mot tidigare stängningspriser (inte high)
+    // Detta fångar breakouts som AMD igår där close > alla tidigare closes
+    const lookbackCloses = closes.slice(-(days + 1), -1);
+    const high100 = Math.max(...lookbackCloses);
+
+    const last20vols = volumes.slice(-21, -1);
+    const avgVol = last20vols.reduce((s, v) => s + v, 0) / last20vols.length;
+
+    if (todayClose <= high100) return null;
+    if (todayVol < avgVol * volFactor) return null;
+
+    const priceHistory = closes.slice(-(days + 1), -1).map(c => +c.toFixed(2));
+    priceHistory.push(+todayClose.toFixed(2));
+
+    return {
+      ticker, index, badge,
+      price:    todayClose.toFixed(2),
+      high100:  high100.toFixed(2),
+      change:   changePct.toFixed(2),
+      avgVol,
+      todayVol,
+      volRatio: todayVol / avgVol,
+      priceHistory,
+      days,
+      dateStr,
+      diffDays,
+      isOld
+    };
+
+  } catch (err) {
+    console.warn(`Fel vid hämtning av ${ticker}:`, err);
+    return null;
+  }
+}
+
+// ==========================================
+// RENDER RESULTS
+// ==========================================
+function renderResults(results) {
+  const list = document.getElementById('resultsList');
+  const count = document.getElementById('resultsCount');
+  count.textContent = `${results.length} hittade`;
+
+  if (results.length === 0) {
+    list.innerHTML = `<div class="empty-state">
+      <div class="empty-icon">🔍</div>
+      <div class="empty-text">Inga breakouts detekterade<br>vid senaste skanningen</div>
+    </div>`;
+    return;
+  }
+
+  list.innerHTML = '';
+  results.forEach((r, i) => {
+    const card = document.createElement('div');
+    card.className = 'stock-card';
+    card.style.animationDelay = `${i * 0.08}s`;
+
+    const volPct = Math.min((r.todayVol / r.avgVol) * 100, 250);
+    const avgPct = 100;
+
+    card.innerHTML = `
+      <div class="stock-top">
+        <div>
+          <div class="stock-ticker">${r.ticker}</div>
+          <div class="stock-name">${r.index}</div>
+        </div>
+        <div class="stock-index-badge ${r.badge}">${r.index}</div>
+      </div>
+
+      ${r.isOld ? `<div style="background:rgba(255,107,53,0.1);border:1px solid rgba(255,107,53,0.3);border-radius:6px;padding:7px 10px;margin-bottom:8px;font-size:10px;color:#ff6b35;">⚠️ Gammal data — breakout skedde ${r.dateStr} (${r.diffDays} dagar sedan)</div>` : ''}
+
+      <div class="signal-bar" style="${r.isConsol ? 'background:rgba(0,255,136,0.08);border-color:rgba(0,255,136,0.3);' : ''}">
+        <span class="signal-icon">${r.isConsol ? '📦' : '🚨'}</span>
+        <span class="signal-text" style="${r.isConsol ? 'color:var(--green);' : ''}">${r.isConsol ? r.consolDays+'-DAG KONSOLIDERINGS-BREAKOUT ('+r.rangePercent+'% intervall)' : r.days+'-DAGARS BREAKOUT'}</span>
+        <span class="signal-sub">${r.dateStr} · +${(r.volRatio).toFixed(1)}× vol</span>
+      </div>
+
+      <div class="stock-metrics">
+        <div class="metric">
+          <div class="metric-label">Pris</div>
+          <div class="metric-value green">$${r.price}</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Förändring</div>
+          <div class="metric-value green">▲ ${r.change}%</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">${r.days}D Högsta</div>
+          <div class="metric-value highlight">$${r.high100}</div>
+        </div>
+      </div>
+
+      <div class="volume-section">
+        <div class="vol-label">Volym jämförelse</div>
+        <div style="margin-bottom:3px;font-size:9px;color:var(--muted)">Snitt (20D)</div>
+        <div class="vol-bar-wrap">
+          <div class="vol-bar avg" id="avg-${i}" style="width:0%"></div>
+        </div>
+        <div style="margin-bottom:3px;font-size:9px;color:var(--accent2)">Idag (${formatVol(r.todayVol)})</div>
+        <div class="vol-bar-wrap">
+          <div class="vol-bar today" id="today-${i}" style="width:0%"></div>
+        </div>
+      </div>
+
+      <div id="chart-${i}" class="chart-container">
+        <div class="chart-header">
+          <div class="chart-title">📈 ${r.days}-dagars prisutveckling</div>
+          <button class="chart-close" onclick="event.stopPropagation();toggleChart(${i})">✕</button>
+        </div>
+        <canvas id="canvas-${i}" height="140"></canvas>
+      </div>
+
+      <div style="text-align:center;margin-top:10px;font-size:10px;color:var(--muted);cursor:pointer" onclick="toggleChart(${i})">
+        <span id="chart-toggle-${i}">▼ Visa graf</span>
+      </div>
+    `;
+
+    list.appendChild(card);
+
+    // Animate volume bars
+    setTimeout(() => {
+      const aEl = document.getElementById(`avg-${i}`);
+      const tEl = document.getElementById(`today-${i}`);
+      if (aEl) aEl.style.width = '60%';
+      if (tEl) tEl.style.width = `${Math.min(volPct * 0.6, 100)}%`;
+    }, 100 + i * 80);
+  });
+}
+
+function formatVol(v) {
+  if (v >= 1e9) return (v/1e9).toFixed(1)+'B';
+  if (v >= 1e6) return (v/1e6).toFixed(1)+'M';
+  return (v/1e3).toFixed(0)+'K';
+}
+
+// ==========================================
+// CHART TOGGLE
+// ==========================================
+const chartInstances = {};
+
+function toggleChart(i) {
+  const container = document.getElementById(`chart-${i}`);
+  const toggle = document.getElementById(`chart-toggle-${i}`);
+  const isVisible = container.classList.contains('visible');
+
+  if (isVisible) {
+    container.classList.remove('visible');
+    toggle.textContent = '▼ Visa graf';
+    return;
+  }
+
+  container.classList.add('visible');
+  toggle.textContent = '▲ Dölj graf';
+
+  if (chartInstances[i]) return; // Already created
+
+  const r = scanResults[i];
+  const ctx = document.getElementById(`canvas-${i}`).getContext('2d');
+  const labels = r.priceHistory.map((_, idx) => idx === r.priceHistory.length - 1 ? 'Idag' : '');
+  const highLine = Array(r.priceHistory.length).fill(parseFloat(r.high100));
+
+  chartInstances[i] = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: r.ticker,
+          data: r.priceHistory,
+          borderColor: '#00e5ff',
+          borderWidth: 2,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          fill: true,
+          backgroundColor: ctx => {
+            const g = ctx.chart.ctx.createLinearGradient(0, 0, 0, 160);
+            g.addColorStop(0, 'rgba(0,229,255,0.2)');
+            g.addColorStop(1, 'rgba(0,229,255,0)');
+            return g;
+          },
+          tension: 0.3
+        },
+        {
+          label: `${r.days}D Högsta`,
+          data: highLine,
+          borderColor: '#ffd700',
+          borderWidth: 1.5,
+          borderDash: [4, 4],
+          pointRadius: 0,
+          fill: false
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      animation: { duration: 800, easing: 'easeOutQuart' },
+      plugins: {
+        legend: {
+          labels: { color: '#4a5568', font: { family: 'Space Mono', size: 9 }, boxWidth: 12 }
+        },
+        tooltip: {
+          backgroundColor: '#0c1220',
+          borderColor: '#1e2d45',
+          borderWidth: 1,
+          titleColor: '#00e5ff',
+          bodyColor: '#e2e8f0',
+          titleFont: { family: 'Space Mono', size: 10 },
+          bodyFont: { family: 'Space Mono', size: 10 },
+          callbacks: {
+            label: ctx => ` $${ctx.raw.toFixed(2)}`
+          }
+        }
+      },
+      scales: {
+        x: { display: false },
+        y: {
+          grid: { color: 'rgba(255,255,255,0.04)' },
+          ticks: { color: '#4a5568', font: { family: 'Space Mono', size: 9 }, maxTicksLimit: 4,
+            callback: v => `$${v.toFixed(0)}` }
+        }
+      }
+    }
+  });
+}
+
+// ==========================================
+// DEBUG FUNCTION
+// ==========================================
+async function debugAMD() {
+  const banner = document.getElementById('apiBanner');
+  banner.style.cssText = 'display:flex; border-radius:10px; padding:12px 14px; margin-bottom:16px; align-items:center; gap:10px; font-size:11px; line-height:1.6; background:rgba(0,229,255,0.06); border:1px solid rgba(0,229,255,0.25); color:var(--accent); flex-direction:column;';
+  banner.textContent = '🔍 Hämtar AMD-data från Render backend...';
+
+  const days = 100;
+  const to   = Math.floor(Date.now() / 1000);
+  const from = to - (days + 60) * 24 * 3600;
+
+  const url = `https://breakout-api-d8fh.onrender.com/stock?symbol=AMD&days=110`;
+
+  try {
+    const resp = await fetch(url);
+    const json = await resp.json();
+
+    if (json.error || !json.closes) {
+      banner.innerHTML = `❌ API svarade fel<br>Rådata: ${JSON.stringify(json).substring(0,200)}`;
+      return;
+    }
+
+    const closes     = json.closes;
+    const highs      = json.highs;
+    const volumes    = json.volumes;
+    const timestamps = json.timestamps;
+    
+    // Extra debug: visa första och sista datum
+    const n = closes.length;
+
+    const todayClose     = closes[n - 1];
+    const todayTimestamp = timestamps[n - 1];
+    const todayDate      = new Date(todayTimestamp * 1000).toLocaleDateString('sv-SE');
+
+    const lookbackCloses = closes.slice(-(days + 1), -1);
+    const high100        = Math.max(...lookbackCloses);
+    const isBreakout     = todayClose > high100;
+
+    const last20vols = volumes.slice(-21, -1);
+    const avgVol     = last20vols.reduce((s, v) => s + v, 0) / last20vols.length;
+    const volRatio   = (volumes[n-1] / avgVol).toFixed(2);
+
+    banner.innerHTML = `
+      <div style="font-weight:700;color:var(--accent);margin-bottom:4px;">🔍 AMD Debug</div>
+      <div>🌐 URL: <b>${url}</b></div>
+      <div>📅 Senaste data: <b>${todayDate}</b></div>
+      <div>💰 Stängningspris: <b>$${todayClose.toFixed(2)}</b></div>
+      <div>📈 ${days}-dagars högsta (close): <b>$${high100.toFixed(2)}</b></div>
+      <div>🚨 Bryter högsta? <b style="color:${isBreakout ? 'var(--green)' : 'var(--red)'}">${isBreakout ? 'JA ✅' : 'NEJ ❌'}</b></div>
+      <div>📊 Volymfaktor idag: <b>${volRatio}×</b> (behöver ≥ 1.5×)</div>
+      <div>📦 Antal datapunkter: <b>${n} dagar</b></div>
+    `;
+  } catch(err) {
+    banner.textContent = `❌ Fel: ${err.message}`;
+  }
+}
+
+// ==========================================
+// CONSOLIDATION ANALYSIS
+// Letar efter aktier som gått sidledes och sedan brutit upp
+// ==========================================
+async function analyzeConsolidation(ticker, index, badge, consolDays, consolRange, volFactor) {
+  try {
+    const to   = Math.floor(Date.now() / 1000);
+    const from = to - (consolDays + 60) * 24 * 3600;
+
+    const url = `https://breakout-api-d8fh.onrender.com/stock?symbol=${ticker}&days=${consolDays + 10}`;
+    const resp = await fetch(url);
+    if (!resp.ok) return null;
+    const json = await resp.json();
+
+    if (json.error || !json.closes || json.closes.length < consolDays + 5) return null;
+
+    const closes     = json.closes;
+    const volumes    = json.volumes;
+    const timestamps = json.timestamps;
+    const n = closes.length;
+
+    // Dagens data
+    const todayClose     = closes[n - 1];
+    const todayVol       = volumes[n - 1];
+    const todayTimestamp = timestamps[n - 1];
+    const prevClose      = closes[n - 2];
+    const changePct      = ((todayClose - prevClose) / prevClose * 100);
+
+    // Konsolideringsperioden = dagarna FÖRE idag
+    const consolCloses  = closes.slice(-(consolDays + 1), -1);
+    const consolVolumes = volumes.slice(-(consolDays + 1), -1);
+
+    const consolHigh = Math.max(...consolCloses);
+    const consolLow  = Math.min(...consolCloses);
+    const rangePercent = ((consolHigh - consolLow) / consolLow) * 100;
+
+    // Villkor 1: Priset har rört sig inom ett smalt intervall (konsolidering)
+    if (rangePercent > consolRange) return null;
+
+    // Villkor 2: Dagens stängning bryter ÖVER konsolideringszonens tak
+    if (todayClose <= consolHigh) return null;
+
+    // Villkor 3: Volymen är högre än normalt
+    const avgVol = consolVolumes.reduce((s, v) => s + v, 0) / consolVolumes.length;
+    if (todayVol < avgVol * volFactor) return null;
+
+    // Datumkontroll
+    const dataDate = new Date(todayTimestamp * 1000);
+    const now      = new Date();
+    const diffDays = Math.floor((now - dataDate) / (1000 * 3600 * 24));
+    const dateStr  = dataDate.toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' });
+    const isOld    = diffDays > 3;
+
+    // Prishistorik för graf
+    const priceHistory = consolCloses.map(c => +c.toFixed(2));
+    priceHistory.push(+todayClose.toFixed(2));
+
+    return {
+      ticker, index, badge,
+      price:       todayClose.toFixed(2),
+      high100:     consolHigh.toFixed(2), // konsolideringens tak
+      change:      changePct.toFixed(2),
+      avgVol,
+      todayVol,
+      volRatio:    todayVol / avgVol,
+      rangePercent: rangePercent.toFixed(1),
+      consolDays,
+      priceHistory,
+      days: consolDays,
+      dateStr,
+      diffDays,
+      isOld,
+      isConsol: true // flagga för renderingen
+    };
+
+  } catch (err) {
+    console.warn(`Konsolideringsfel för ${ticker}:`, err);
+    return null;
+  }
+}
+
+// ==========================================
+// INDEX DATA — Finnhub (fungerar för quote-anrop)
+// ==========================================
+async function updateIndexData() {
+  // S&P 500 ETF (SPY), Dow Jones ETF (DIA), OMX Stockholm 30 ETF (XACT OMXS30 på Stockholmsbörsen)
+  const indices = [
+    { symbol: 'SPY', valueId: 'spValue', changeId: 'spChange' },
+    { symbol: 'DIA', valueId: 'djValue', changeId: 'djChange' },
+    { symbol: 'EWD', valueId: 'stValue', changeId: 'stChange' }
+  ];
+
+  for (const idx of indices) {
+    try {
+      const url = `https://finnhub.io/api/v1/quote?symbol=${idx.symbol}&token=${FINNHUB_KEY}`;
+      const resp = await fetch(url, {mode: 'cors'});
+      if (!resp.ok) continue;
+      const data = await resp.json();
+
+      if (!data.c) continue;
+
+      // Visa ETF-priset direkt utan multiplikator
+      const price  = data.c.toFixed(2);
+      const change = data.dp ? data.dp.toFixed(2) : '0.00';
+      const isUp   = parseFloat(change) >= 0;
+
+      document.getElementById(idx.valueId).textContent = '$' + parseFloat(price).toLocaleString('sv-SE');
+      const changeEl = document.getElementById(idx.changeId);
+      changeEl.textContent = `${isUp ? '▲' : '▼'} ${isUp ? '+' : ''}${change}%`;
+      changeEl.className = `index-change ${isUp ? 'up' : 'down'}`;
+    } catch(e) {
+      document.getElementById(idx.valueId).textContent = '—';
+      document.getElementById(idx.changeId).textContent = 'Ej tillgänglig';
+      console.warn('Index fetch failed for', idx.symbol, e);
+    }
+  }
+}
+
+function updateLastScan() {
+  const now = new Date();
+  document.getElementById('lastScan').textContent =
+    `Senaste skanning: ${now.toLocaleTimeString('sv-SE', {hour:'2-digit',minute:'2-digit'})} — ${now.toLocaleDateString('sv-SE')}`;
+}
+</script>
+</body>
+</html>

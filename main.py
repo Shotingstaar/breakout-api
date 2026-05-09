@@ -1,37 +1,31 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import yfinance as yf
-from datetime import datetime, timedelta
 
 app = Flask(__name__)
-CORS(app)  # Tillåter anrop från GitHub Pages
+CORS(app)
 
 @app.route('/')
 def index():
-    return jsonify({"status": "Breakout API körs!", "version": "1.0"})
+    return jsonify({"status": "Breakout API körs!", "version": "1.1"})
 
 @app.route('/stock')
 def get_stock():
-    ticker  = request.args.get('symbol', '').upper()
-    days    = int(request.args.get('days', 100))
+    ticker = request.args.get('symbol', '').upper()
+    days   = int(request.args.get('days', 100))
 
     if not ticker:
         return jsonify({"error": "Ingen ticker angiven"}), 400
 
     try:
-        # Hämta extra dagar för att täcka helger/helgdagar
-        period_days = days + 40
-        end   = datetime.today()
-        start = end - timedelta(days=period_days)
-
+        # Använd period="1y" — undviker cachningsproblem med datum
         stock = yf.Ticker(ticker)
-        hist  = stock.history(start=start.strftime('%Y-%m-%d'),
-                              end=end.strftime('%Y-%m-%d'))
+        hist  = stock.history(period="1y", interval="1d")
 
         if hist.empty or len(hist) < 10:
             return jsonify({"error": "Ingen data tillgänglig"}), 404
 
-        # Bygg svaret — nyast först
+        # Nyast först
         hist = hist.sort_index(ascending=False)
 
         closes     = hist['Close'].tolist()
@@ -41,13 +35,14 @@ def get_stock():
         dates      = [d.strftime('%Y-%m-%d') for d in hist.index]
 
         return jsonify({
-            "ticker":     ticker,
-            "closes":     closes,
-            "highs":      highs,
-            "volumes":    volumes,
-            "timestamps": timestamps,
-            "dates":      dates,
-            "count":      len(closes)
+            "ticker":      ticker,
+            "closes":      closes,
+            "highs":       highs,
+            "volumes":     volumes,
+            "timestamps":  timestamps,
+            "dates":       dates,
+            "count":       len(closes),
+            "latest_date": dates[0]
         })
 
     except Exception as e:
@@ -62,8 +57,8 @@ def get_quote():
         stock = yf.Ticker(ticker)
         info  = stock.fast_info
         return jsonify({
-            "ticker": ticker,
-            "price":  round(info.last_price, 2),
+            "ticker":     ticker,
+            "price":      round(info.last_price, 2),
             "change_pct": round(((info.last_price - info.previous_close) / info.previous_close) * 100, 2)
         })
     except Exception as e:
