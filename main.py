@@ -2,13 +2,21 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import yfinance as yf
 from datetime import datetime, timedelta
+import os
+import shutil
 
 app = Flask(__name__)
 CORS(app)
 
+def clear_yf_cache():
+    """Rensa yfinance cache för att alltid få färsk data"""
+    cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "py-yfinance")
+    if os.path.exists(cache_dir):
+        shutil.rmtree(cache_dir)
+
 @app.route('/')
 def index():
-    return jsonify({"status": "Breakout API körs!", "version": "1.3"})
+    return jsonify({"status": "Breakout API körs!", "version": "1.4"})
 
 @app.route('/stock')
 def get_stock():
@@ -19,6 +27,8 @@ def get_stock():
         return jsonify({"error": "Ingen ticker angiven"}), 400
 
     try:
+        clear_yf_cache()
+
         end   = datetime.today()
         start = end - timedelta(days=days + 60)
 
@@ -48,7 +58,8 @@ def get_stock():
             "timestamps":  timestamps,
             "dates":       dates,
             "count":       len(closes),
-            "latest_date": dates[0]
+            "latest_date": dates[0],
+            "fetched_at":  datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         })
 
     except Exception as e:
@@ -60,6 +71,7 @@ def get_quote():
     if not ticker:
         return jsonify({"error": "Ingen ticker angiven"}), 400
     try:
+        clear_yf_cache()
         stock = yf.Ticker(ticker)
         info  = stock.fast_info
         return jsonify({
