@@ -1,13 +1,14 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import yfinance as yf
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 CORS(app)
 
 @app.route('/')
 def index():
-    return jsonify({"status": "Breakout API körs!", "version": "1.1"})
+    return jsonify({"status": "Breakout API körs!", "version": "1.3"})
 
 @app.route('/stock')
 def get_stock():
@@ -18,14 +19,19 @@ def get_stock():
         return jsonify({"error": "Ingen ticker angiven"}), 400
 
     try:
-        # Använd period="1y" — undviker cachningsproblem med datum
+        end   = datetime.today()
+        start = end - timedelta(days=days + 60)
+
         stock = yf.Ticker(ticker)
-        hist  = stock.history(period="1y", interval="1d")
+        hist  = stock.history(
+            start=start.strftime('%Y-%m-%d'),
+            end=end.strftime('%Y-%m-%d'),
+            interval="1d"
+        )
 
         if hist.empty or len(hist) < 10:
             return jsonify({"error": "Ingen data tillgänglig"}), 404
 
-        # Nyast först
         hist = hist.sort_index(ascending=False)
 
         closes     = hist['Close'].tolist()
