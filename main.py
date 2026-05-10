@@ -86,20 +86,72 @@ DOW = ['AAPL','MSFT','UNH','GS','HD','MCD','CAT','V','AMGN','TRV',
        'AXP','HON','JPM','IBM','BA','MMM','DIS','JNJ','CVX','MRK',
        'WMT','NKE','PG','CRM','CSCO','INTC','VZ','KO','DOW','WBA']
 
+def analyze_ticker(ticker, hist, mode='breakout', days=100, vol_factor=1.5, consol_days=20, consol_range=10):
+    """Analysera en aktie för breakout eller konsolidering"""
+    hist = hist.sort_index(ascending=False)
+    closes  = hist['Close'].tolist()
+    volumes = hist['Volume'].tolist()
+
+    if len(closes) < days + 2:
+        return None
+
+    today_close = closes[0]
+    today_vol   = volumes[0]
+    prev_close  = closes[1]
+    change_pct  = ((today_close - prev_close) / prev_close) * 100
+    avg_vol     = sum(volumes[1:21]) / 20
+
+    if mode == 'breakout':
+        lookback = closes[1:days+1]
+        high100  = max(lookback)
+        if today_close > high100 and today_vol >= avg_vol * vol_factor:
+            return {
+                'mode': 'breakout',
+                'change_pct': change_pct,
+                'high100': high100,
+                'today_vol': today_vol,
+                'avg_vol': avg_vol,
+                'vol_ratio': today_vol / avg_vol,
+                'price': today_close
+            }
+
+    elif mode == 'consol':
+        if len(closes) < consol_days + 2:
+            return None
+        consol_closes  = closes[1:consol_days+1]
+        consol_volumes = volumes[1:consol_days+1]
+        consol_high    = max(consol_closes)
+        consol_low     = min(consol_closes)
+        range_pct      = ((consol_high - consol_low) / consol_low) * 100
+        avg_vol        = sum(consol_volumes) / len(consol_volumes)
+
+        if range_pct <= consol_range and today_close > consol_high and today_vol >= avg_vol * vol_factor:
+            return {
+                'mode': 'consol',
+                'change_pct': change_pct,
+                'high100': consol_high,
+                'today_vol': today_vol,
+                'avg_vol': avg_vol,
+                'vol_ratio': today_vol / avg_vol,
+                'price': today_close,
+                'range_pct': range_pct
+            }
+    return None
+
 def run_auto_scan():
-    """Kör automatisk skanning och spara i databasen"""
+    """Kör automatisk skanning — både breakout och konsolidering"""
     print(f"Startar automatisk skanning {datetime.now()}")
-    
+
     all_tickers = list(set(SP500 + DOW))
-    days = 100
+    days       = 100
     vol_factor = 1.5
+    consol_days  = 20
+    consol_range = 10
     found = 0
 
     try:
         conn = get_db()
-        cur = conn.cursor()
-        
-        # Ta bort gamla resultat från idag
+        cur  = conn.cursor()
         cur.execute("DELETE FROM scan_results WHERE scan_date = CURRENT_DATE")
         conn.commit()
 
@@ -107,54 +159,45 @@ def run_auto_scan():
             try:
                 end   = datetime.today()
                 start = end - timedelta(days=days + 60)
-                
                 stock = yf.Ticker(ticker)
                 hist  = stock.history(
                     start=start.strftime('%Y-%m-%d'),
                     end=end.strftime('%Y-%m-%d'),
                     interval="1d"
                 )
-                
-                if hist.empty or len(hist) < days + 1:
+                if hist.empty or len(hist) < 10:
                     continue
 
-                hist = hist.sort_index(ascending=False)
-                closes  = hist['Close'].tolist()
-                volumes = hist['Volume'].tolist()
+                index_name = 'DOW' if ticker in DOW else 'S&P 500'
 
-                today_close = closes[0]
-                today_vol   = volumes[0]
-                prev_close  = closes[1]
-                change_pct  = ((today_close - prev_close) / prev_close) * 100
-
-                lookback_closes = closes[1:days+1]
-                high100 = max(lookback_closes)
-                avg_vol = sum(volumes[1:21]) / 20
-
-                if today_close > high100 and today_vol >= avg_vol * vol_factor:
-                    index_name = 'DOW' if ticker in DOW else 'S&P 500'
-                    cur.execute('''
-                        INSERT INTO scan_results 
-                        (scan_date, scan_time, scan_mode, ticker, index_name, price, 
-                         change_pct, high100, vol_today, vol_avg, vol_ratio, days)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ''', (
-                        datetime.now().date(),
-                        datetime.now().time(),
-                        'breakout',
-                        ticker,
-                        index_name,
-                        round(today_close, 2),
-                        round(change_pct, 2),
-                        round(high100, 2),
-                        today_vol,
-                        avg_vol,
-                        round(today_vol / avg_vol, 2),
-                        days
-                    ))
-                    conn.commit()
-                    found += 1
-                    print(f"Breakout: {ticker} ${today_close:.2f} vol {today_vol/avg_vol:.1f}x")
+                # Kör båda skanningarna
+                for mode in ['breakout', 'consol']:
+                    result = analyze_ticker(ticker, hist, mode=mode, days=days,
+                                          vol_factor=vol_factor, consol_days=consol_days,
+                                          consol_range=consol_range)
+                    if result:
+                        cur.execute('''
+                            INSERT INTO scan_results
+                            (scan_date, scan_time, scan_mode, ticker, index_name, price,
+                             change_pct, high100, vol_today, vol_avg, vol_ratio, days)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ''', (
+                            datetime.now().date(),
+                            datetime.now().time(),
+                            mode,
+                            ticker,
+                            index_name,
+                            round(result['price'], 2),
+                            round(result['change_pct'], 2),
+                            round(result['high100'], 2),
+                            result['today_vol'],
+                            result['avg_vol'],
+                            round(result['vol_ratio'], 2),
+                            days
+                        ))
+                        conn.commit()
+                        found += 1
+                        print(f"{mode.upper()}: {ticker} ${result['price']:.2f} vol {result['vol_ratio']:.1f}x")
 
             except Exception as e:
                 print(f"Fel för {ticker}: {e}")
@@ -162,7 +205,7 @@ def run_auto_scan():
 
         cur.close()
         conn.close()
-        print(f"Automatisk skanning klar — {found} breakouts hittade")
+        print(f"Automatisk skanning klar — {found} träffar hittade")
 
     except Exception as e:
         print(f"Auto-scan fel: {e}")
@@ -188,7 +231,7 @@ def schedule_scan():
 
 @app.route('/')
 def index():
-    return jsonify({"status": "Breakout API körs!", "version": "1.7"})
+    return jsonify({"status": "Breakout API körs!", "version": "1.8"})
 
 @app.route('/stock')
 def get_stock():
