@@ -347,13 +347,13 @@ def scan_by_date():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route('/trigger_scan', methods=['POST'])
+@app.route('/trigger_scan', methods=['GET', 'POST'])
 def trigger_scan():
     """Kör skanning manuellt"""
     thread = threading.Thread(target=run_auto_scan)
     thread.daemon = True
     thread.start()
-    return jsonify({"status": "Skanning startad i bakgrunden"})
+    return jsonify({"status": "Skanning startad!", "message": "Klar om ca 10 minuter"})
 
 @app.route('/quote')
 def get_quote():
