@@ -36,6 +36,7 @@ def init_db():
                 vol_avg FLOAT,
                 vol_ratio FLOAT,
                 days INT,
+                rsi FLOAT,
                 created_at TIMESTAMP DEFAULT NOW()
             )
         ''')
@@ -86,6 +87,28 @@ DOW = ['AAPL','MSFT','UNH','GS','HD','MCD','CAT','V','AMGN','TRV',
        'AXP','HON','JPM','IBM','BA','MMM','DIS','JNJ','CVX','MRK',
        'WMT','NKE','PG','CRM','CSCO','INTC','VZ','KO','DOW','WBA']
 
+def calculate_rsi(closes, period=14):
+    """Beräkna RSI (Relative Strength Index)"""
+    if len(closes) < period + 1:
+        return None
+    # closes är nyast först, vänd för beräkning
+    prices = list(reversed(closes[:period + 10]))
+    gains = []
+    losses = []
+    for i in range(1, len(prices)):
+        diff = prices[i] - prices[i-1]
+        gains.append(max(diff, 0))
+        losses.append(max(-diff, 0))
+    avg_gain = sum(gains[:period]) / period
+    avg_loss = sum(losses[:period]) / period
+    for i in range(period, len(gains)):
+        avg_gain = (avg_gain * (period-1) + gains[i]) / period
+        avg_loss = (avg_loss * (period-1) + losses[i]) / period
+    if avg_loss == 0:
+        return 100
+    rs = avg_gain / avg_loss
+    return round(100 - (100 / (1 + rs)), 1)
+
 def analyze_ticker(ticker, hist, mode='breakout', days=100, vol_factor=1.5, consol_days=20, consol_range=10):
     """Analysera en aktie för breakout eller konsolidering"""
     hist = hist.sort_index(ascending=False)
@@ -105,6 +128,7 @@ def analyze_ticker(ticker, hist, mode='breakout', days=100, vol_factor=1.5, cons
         lookback = closes[1:days+1]
         high100  = max(lookback)
         if today_close > high100 and today_vol >= avg_vol * vol_factor:
+            rsi = calculate_rsi(closes)
             return {
                 'mode': 'breakout',
                 'change_pct': change_pct,
@@ -112,7 +136,8 @@ def analyze_ticker(ticker, hist, mode='breakout', days=100, vol_factor=1.5, cons
                 'today_vol': today_vol,
                 'avg_vol': avg_vol,
                 'vol_ratio': today_vol / avg_vol,
-                'price': today_close
+                'price': today_close,
+                'rsi': rsi
             }
 
     elif mode == 'consol':
@@ -126,6 +151,7 @@ def analyze_ticker(ticker, hist, mode='breakout', days=100, vol_factor=1.5, cons
         avg_vol        = sum(consol_volumes) / len(consol_volumes)
 
         if range_pct <= consol_range and today_close > consol_high and today_vol >= avg_vol * vol_factor:
+            rsi = calculate_rsi(closes)
             return {
                 'mode': 'consol',
                 'change_pct': change_pct,
@@ -134,7 +160,8 @@ def analyze_ticker(ticker, hist, mode='breakout', days=100, vol_factor=1.5, cons
                 'avg_vol': avg_vol,
                 'vol_ratio': today_vol / avg_vol,
                 'price': today_close,
-                'range_pct': range_pct
+                'range_pct': range_pct,
+                'rsi': rsi
             }
     return None
 
@@ -179,8 +206,8 @@ def run_auto_scan():
                         cur.execute('''
                             INSERT INTO scan_results
                             (scan_date, scan_time, scan_mode, ticker, index_name, price,
-                             change_pct, high100, vol_today, vol_avg, vol_ratio, days)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                             change_pct, high100, vol_today, vol_avg, vol_ratio, days, rsi)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ''', (
                             datetime.now().date(),
                             datetime.now().time(),
@@ -193,7 +220,8 @@ def run_auto_scan():
                             result['today_vol'],
                             result['avg_vol'],
                             round(result['vol_ratio'], 2),
-                            days
+                            days,
+                            result.get('rsi')
                         ))
                         conn.commit()
                         found += 1
@@ -232,7 +260,7 @@ def schedule_scan():
 @app.route('/')
 def index():
     init_db()  # Säkerställ att tabellen finns
-    return jsonify({"status": "Breakout API körs!", "version": "1.9"})
+    return jsonify({"status": "Breakout API körs!", "version": "2.0"})
 
 @app.route('/stock')
 def get_stock():
@@ -272,7 +300,8 @@ def latest_scan():
         cur = conn.cursor()
         cur.execute('''
             SELECT ticker, index_name, price, change_pct, high100, 
-                   vol_today, vol_avg, vol_ratio, days, scan_date, scan_time
+                   vol_today, vol_avg, vol_ratio, days, scan_date, scan_time,
+                   scan_mode, rsi
             FROM scan_results 
             WHERE scan_date = (SELECT MAX(scan_date) FROM scan_results)
             ORDER BY vol_ratio DESC
@@ -292,7 +321,9 @@ def latest_scan():
             "volRatio":  r[7],
             "days":      r[8],
             "scan_date": str(r[9]),
-            "scan_time": str(r[10])
+            "scan_time": str(r[10]),
+            "scan_mode": r[11],
+            "rsi":       r[12]
         } for r in rows]
         
         return jsonify({
