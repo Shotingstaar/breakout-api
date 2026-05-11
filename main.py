@@ -170,10 +170,11 @@ def calculate_rsi(closes, period=14):
     return round(100 - (100 / (1 + rs)), 1)
 
 def analyze_ticker(ticker, hist, mode='breakout', days=100, vol_factor=1.5, consol_days=20, consol_range=10):
-    lows = hist['Low'].tolist()
     """Analysera en aktie för breakout eller konsolidering"""
     hist = hist.sort_index(ascending=False)
     closes  = hist['Close'].tolist()
+    highs   = hist['High'].tolist()
+    lows    = hist['Low'].tolist()
     volumes = hist['Volume'].tolist()
 
     if len(closes) < days + 2:
@@ -353,7 +354,7 @@ def schedule_scan():
 @app.route('/')
 def index():
     init_db()  # Säkerställ att tabellen finns
-    return jsonify({"status": "Breakout API körs!", "version": "2.1"})
+    return jsonify({"status": "Breakout API körs!", "version": "2.2"})
 
 @app.route('/stock')
 def get_stock():
