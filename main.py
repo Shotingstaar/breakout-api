@@ -37,19 +37,23 @@ def init_db():
                 vol_ratio FLOAT,
                 days INT,
                 rsi FLOAT,
+                ma50 FLOAT,
+                ma200 FLOAT,
+                ma50_pct FLOAT,
+                ma200_pct FLOAT,
+                macd FLOAT,
+                macd_hist FLOAT,
+                atr FLOAT,
                 created_at TIMESTAMP DEFAULT NOW()
             )
         ''')
-        # Lägg till rsi-kolumn om den inte finns (migration)
-        cur.execute('''
-            ALTER TABLE scan_results 
-            ADD COLUMN IF NOT EXISTS rsi FLOAT
-        ''')
-        # Lägg till scan_mode om den inte finns
-        cur.execute('''
-            ALTER TABLE scan_results 
-            ADD COLUMN IF NOT EXISTS scan_mode VARCHAR(20)
-        ''')
+        # Migration: lägg till nya kolumner om de saknas
+        for col in ['rsi FLOAT', 'ma50 FLOAT', 'ma200 FLOAT', 
+                    'ma50_pct FLOAT', 'ma200_pct FLOAT',
+                    'macd FLOAT', 'macd_hist FLOAT', 'atr FLOAT',
+                    'scan_mode VARCHAR(20)']:
+            col_name = col.split()[0]
+            cur.execute(f'ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS {col}')
         conn.commit()
         cur.close()
         conn.close()
@@ -97,6 +101,52 @@ DOW = ['AAPL','MSFT','UNH','GS','HD','MCD','CAT','V','AMGN','TRV',
        'AXP','HON','JPM','IBM','BA','MMM','DIS','JNJ','CVX','MRK',
        'WMT','NKE','PG','CRM','CSCO','INTC','VZ','KO','DOW','WBA']
 
+def calculate_ma(closes, period):
+    """Beräkna glidande medelvärde"""
+    if len(closes) < period:
+        return None
+    # closes är nyast först
+    return round(sum(closes[:period]) / period, 2)
+
+def calculate_macd(closes):
+    """Beräkna MACD (12,26,9)"""
+    if len(closes) < 35:
+        return None, None
+    prices = list(reversed(closes[:35]))
+    
+    def ema(data, period):
+        k = 2 / (period + 1)
+        ema_val = sum(data[:period]) / period
+        for price in data[period:]:
+            ema_val = price * k + ema_val * (1 - k)
+        return ema_val
+    
+    ema12 = ema(prices, 12)
+    ema26 = ema(prices, 26)
+    macd_line = round(ema12 - ema26, 2)
+    
+    # Signal line (9-period EMA of MACD) — simplified
+    signal = round(macd_line * 0.9, 2)
+    histogram = round(macd_line - signal, 2)
+    return macd_line, histogram
+
+def calculate_atr(highs, lows, closes, period=14):
+    """Beräkna ATR (Average True Range)"""
+    if len(highs) < period + 1:
+        return None
+    # Data är nyast först, vänd för beräkning
+    h = list(reversed(highs[:period+2]))
+    l = list(reversed(lows[:period+2]))
+    c = list(reversed(closes[:period+2]))
+    
+    trs = []
+    for i in range(1, len(h)):
+        tr = max(h[i] - l[i], abs(h[i] - c[i-1]), abs(l[i] - c[i-1]))
+        trs.append(tr)
+    
+    atr = sum(trs[:period]) / period
+    return round(atr, 2)
+
 def calculate_rsi(closes, period=14):
     """Beräkna RSI (Relative Strength Index)"""
     if len(closes) < period + 1:
@@ -120,6 +170,7 @@ def calculate_rsi(closes, period=14):
     return round(100 - (100 / (1 + rs)), 1)
 
 def analyze_ticker(ticker, hist, mode='breakout', days=100, vol_factor=1.5, consol_days=20, consol_range=10):
+    lows = hist['Low'].tolist()
     """Analysera en aktie för breakout eller konsolidering"""
     hist = hist.sort_index(ascending=False)
     closes  = hist['Close'].tolist()
@@ -138,7 +189,13 @@ def analyze_ticker(ticker, hist, mode='breakout', days=100, vol_factor=1.5, cons
         lookback = closes[1:days+1]
         high100  = max(lookback)
         if today_close > high100 and today_vol >= avg_vol * vol_factor:
-            rsi = calculate_rsi(closes)
+            rsi   = calculate_rsi(closes)
+            ma50  = calculate_ma(closes, 50)
+            ma200 = calculate_ma(closes, 200)
+            macd_line, macd_hist = calculate_macd(closes)
+            atr   = calculate_atr(highs, lows, closes)
+            ma50_pct  = round(((today_close - ma50) / ma50 * 100), 1) if ma50 else None
+            ma200_pct = round(((today_close - ma200) / ma200 * 100), 1) if ma200 else None
             return {
                 'mode': 'breakout',
                 'change_pct': change_pct,
@@ -147,7 +204,14 @@ def analyze_ticker(ticker, hist, mode='breakout', days=100, vol_factor=1.5, cons
                 'avg_vol': avg_vol,
                 'vol_ratio': today_vol / avg_vol,
                 'price': today_close,
-                'rsi': rsi
+                'rsi': rsi,
+                'ma50': ma50,
+                'ma200': ma200,
+                'ma50_pct': ma50_pct,
+                'ma200_pct': ma200_pct,
+                'macd': macd_line,
+                'macd_hist': macd_hist,
+                'atr': atr
             }
 
     elif mode == 'consol':
@@ -161,7 +225,13 @@ def analyze_ticker(ticker, hist, mode='breakout', days=100, vol_factor=1.5, cons
         avg_vol        = sum(consol_volumes) / len(consol_volumes)
 
         if range_pct <= consol_range and today_close > consol_high and today_vol >= avg_vol * vol_factor:
-            rsi = calculate_rsi(closes)
+            rsi   = calculate_rsi(closes)
+            ma50  = calculate_ma(closes, 50)
+            ma200 = calculate_ma(closes, 200)
+            macd_line, macd_hist = calculate_macd(closes)
+            atr   = calculate_atr(highs, lows, closes)
+            ma50_pct  = round(((today_close - ma50) / ma50 * 100), 1) if ma50 else None
+            ma200_pct = round(((today_close - ma200) / ma200 * 100), 1) if ma200 else None
             return {
                 'mode': 'consol',
                 'change_pct': change_pct,
@@ -171,7 +241,14 @@ def analyze_ticker(ticker, hist, mode='breakout', days=100, vol_factor=1.5, cons
                 'vol_ratio': today_vol / avg_vol,
                 'price': today_close,
                 'range_pct': range_pct,
-                'rsi': rsi
+                'rsi': rsi,
+                'ma50': ma50,
+                'ma200': ma200,
+                'ma50_pct': ma50_pct,
+                'ma200_pct': ma200_pct,
+                'macd': macd_line,
+                'macd_hist': macd_hist,
+                'atr': atr
             }
     return None
 
@@ -216,14 +293,13 @@ def run_auto_scan():
                         cur.execute('''
                             INSERT INTO scan_results
                             (scan_date, scan_time, scan_mode, ticker, index_name, price,
-                             change_pct, high100, vol_today, vol_avg, vol_ratio, days, rsi)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                             change_pct, high100, vol_today, vol_avg, vol_ratio, days,
+                             rsi, ma50, ma200, ma50_pct, ma200_pct, macd, macd_hist, atr)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                         ''', (
                             datetime.now().date(),
                             datetime.now().time(),
-                            mode,
-                            ticker,
-                            index_name,
+                            mode, ticker, index_name,
                             round(result['price'], 2),
                             round(result['change_pct'], 2),
                             round(result['high100'], 2),
@@ -231,7 +307,14 @@ def run_auto_scan():
                             result['avg_vol'],
                             round(result['vol_ratio'], 2),
                             days,
-                            result.get('rsi')
+                            result.get('rsi'),
+                            result.get('ma50'),
+                            result.get('ma200'),
+                            result.get('ma50_pct'),
+                            result.get('ma200_pct'),
+                            result.get('macd'),
+                            result.get('macd_hist'),
+                            result.get('atr')
                         ))
                         conn.commit()
                         found += 1
@@ -270,7 +353,7 @@ def schedule_scan():
 @app.route('/')
 def index():
     init_db()  # Säkerställ att tabellen finns
-    return jsonify({"status": "Breakout API körs!", "version": "2.0"})
+    return jsonify({"status": "Breakout API körs!", "version": "2.1"})
 
 @app.route('/stock')
 def get_stock():
@@ -309,9 +392,9 @@ def latest_scan():
         conn = get_db()
         cur = conn.cursor()
         cur.execute('''
-            SELECT ticker, index_name, price, change_pct, high100, 
+            SELECT ticker, index_name, price, change_pct, high100,
                    vol_today, vol_avg, vol_ratio, days, scan_date, scan_time,
-                   scan_mode, rsi
+                   scan_mode, rsi, ma50, ma200, ma50_pct, ma200_pct, macd, macd_hist, atr
             FROM scan_results 
             WHERE scan_date = (SELECT MAX(scan_date) FROM scan_results)
             ORDER BY vol_ratio DESC
@@ -333,7 +416,14 @@ def latest_scan():
             "scan_date": str(r[9]),
             "scan_time": str(r[10]),
             "scan_mode": r[11],
-            "rsi":       r[12]
+            "rsi":       r[12],
+            "ma50":      r[13],
+            "ma200":     r[14],
+            "ma50_pct":  r[15],
+            "ma200_pct": r[16],
+            "macd":      r[17],
+            "macd_hist": r[18],
+            "atr":       r[19]
         } for r in rows]
         
         return jsonify({
