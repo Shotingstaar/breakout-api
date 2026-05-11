@@ -310,14 +310,34 @@ def get_sector_status():
     except Exception as e:
         print(f"Sektor-fel: {e}")
 
+# Hårdkodad sektormappning för S&P 500 vanligaste aktier
+TICKER_SECTORS = {
+    'AAPL':'Technology','MSFT':'Technology','NVDA':'Technology','GOOGL':'Communication Services',
+    'AMZN':'Consumer Cyclical','META':'Communication Services','TSLA':'Consumer Cyclical',
+    'AVGO':'Technology','JPM':'Financials','LLY':'Healthcare','V':'Financials',
+    'UNH':'Healthcare','XOM':'Energy','MA':'Financials','JNJ':'Healthcare',
+    'PG':'Consumer Defensive','COST':'Consumer Defensive','HD':'Consumer Cyclical',
+    'ABBV':'Healthcare','CRM':'Technology','MRK':'Healthcare','CVX':'Energy',
+    'NFLX':'Communication Services','AMD':'Technology','PEP':'Consumer Defensive',
+    'ADBE':'Technology','CSCO':'Technology','WMT':'Consumer Defensive','BAC':'Financials',
+    'ACN':'Technology','INTC':'Technology','QCOM':'Technology','TXN':'Technology',
+    'MU':'Technology','AMAT':'Technology','LRCX':'Technology','KLAC':'Technology',
+    'PANW':'Technology','FTNT':'Technology','CRWD':'Technology','NOW':'Technology',
+    'AKAM':'Technology','GLW':'Technology','MNST':'Consumer Defensive',
+    'GE':'Industrials','CAT':'Industrials','HON':'Industrials','RTX':'Industrials',
+    'UPS':'Industrials','DE':'Industrials','BA':'Industrials','LMT':'Industrials',
+    'GS':'Financials','MS':'Financials','BLK':'Financials','SCHW':'Financials',
+    'AMGN':'Healthcare','GILD':'Healthcare','BIIB':'Healthcare','VRTX':'Healthcare',
+    'CVS':'Healthcare','CI':'Healthcare','HUM':'Healthcare','ELV':'Healthcare',
+    'XOM':'Energy','CVX':'Energy','COP':'Energy','SLB':'Energy','EOG':'Energy',
+    'NEE':'Utilities','DUK':'Utilities','SO':'Utilities','AEP':'Utilities',
+    'AMT':'Real Estate','PLD':'Real Estate','EQIX':'Real Estate',
+    'LIN':'Basic Materials','APD':'Basic Materials','FCX':'Basic Materials',
+}
+
 def get_ticker_sector(ticker):
-    """Hämta sektor för en aktie från yfinance"""
-    try:
-        stock = yf.Ticker(ticker)
-        info  = stock.info
-        return info.get('sector', 'Unknown')
-    except:
-        return 'Unknown'
+    """Hämta sektor för en aktie"""
+    return TICKER_SECTORS.get(ticker, 'Unknown')
 
 def run_auto_scan():
     """Kör automatisk skanning — både breakout och konsolidering"""
@@ -425,7 +445,7 @@ def schedule_scan():
 @app.route('/')
 def index():
     init_db()  # Säkerställ att tabellen finns
-    return jsonify({"status": "Breakout API körs!", "version": "2.3"})
+    return jsonify({"status": "Breakout API körs!", "version": "2.4"})
 
 @app.route('/stock')
 def get_stock():
@@ -435,7 +455,7 @@ def get_stock():
         return jsonify({"error": "Ingen ticker angiven"}), 400
     try:
         end   = datetime.today()
-        start = end - timedelta(days=max(days, 200) + 60)  # Minst 260 dagar för MA200
+        start = end - timedelta(days=300)  # 300 dagar för att täcka MA200
         stock = yf.Ticker(ticker)
         hist  = stock.history(start=start.strftime('%Y-%m-%d'), end=end.strftime('%Y-%m-%d'), interval="1d")
         if hist.empty or len(hist) < 10:
@@ -464,13 +484,13 @@ def latest_scan():
         conn = get_db()
         cur = conn.cursor()
         cur.execute('''
-            SELECT ticker, index_name, price, change_pct, high100,
+            SELECT DISTINCT ON (ticker, scan_mode) ticker, index_name, price, change_pct, high100,
                    vol_today, vol_avg, vol_ratio, days, scan_date, scan_time,
                    scan_mode, rsi, ma50, ma200, ma50_pct, ma200_pct, macd, macd_hist, atr,
                    sector, sector_bullish
             FROM scan_results 
             WHERE scan_date = (SELECT MAX(scan_date) FROM scan_results)
-            ORDER BY vol_ratio DESC
+            ORDER BY ticker, scan_mode, vol_ratio DESC
         ''')
         rows = cur.fetchall()
         cur.close()
