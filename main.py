@@ -17,7 +17,7 @@ def get_db():
     return psycopg2.connect(DATABASE_URL)
 
 def init_db():
-    """Skapa tabeller om de inte finns"""
+    """Skapa tabeller om de inte finns och lägg till saknade kolumner"""
     try:
         conn = get_db()
         cur = conn.cursor()
@@ -39,6 +39,16 @@ def init_db():
                 rsi FLOAT,
                 created_at TIMESTAMP DEFAULT NOW()
             )
+        ''')
+        # Lägg till rsi-kolumn om den inte finns (migration)
+        cur.execute('''
+            ALTER TABLE scan_results 
+            ADD COLUMN IF NOT EXISTS rsi FLOAT
+        ''')
+        # Lägg till scan_mode om den inte finns
+        cur.execute('''
+            ALTER TABLE scan_results 
+            ADD COLUMN IF NOT EXISTS scan_mode VARCHAR(20)
         ''')
         conn.commit()
         cur.close()
