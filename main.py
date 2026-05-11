@@ -576,11 +576,94 @@ def scan_by_date():
 
 @app.route('/trigger_scan', methods=['GET', 'POST'])
 def trigger_scan():
-    """Kör skanning manuellt"""
+    """Kör skanning manuellt i bakgrunden (sparar till DB)"""
     thread = threading.Thread(target=run_auto_scan)
     thread.daemon = True
     thread.start()
     return jsonify({"status": "Skanning startad!", "message": "Klar om ca 10 minuter"})
+
+@app.route('/scan_live')
+def scan_live():
+    """Live-skanning: tar en batch tickers, returnerar träffar direkt utan att spara till DB."""
+    tickers_param = request.args.get('tickers', '')
+    days         = int(request.args.get('days', 100))
+    vol_factor   = float(request.args.get('vol_factor', 1.5))
+    mode         = request.args.get('mode', 'breakout')
+    consol_days  = int(request.args.get('consol_days', 20))
+    consol_range = float(request.args.get('consol_range', 10))
+
+    if not tickers_param:
+        return jsonify({"error": "Inga tickers angivna"}), 400
+
+    tickers = [t.strip().upper() for t in tickers_param.split(',') if t.strip()][:50]
+    results = []
+    end   = datetime.today()
+    start = end - timedelta(days=380)
+
+    from datetime import date as date_cls
+
+    for ticker in tickers:
+        try:
+            stock = yf.Ticker(ticker)
+            hist  = stock.history(start=start.strftime('%Y-%m-%d'), end=end.strftime('%Y-%m-%d'), interval="1d")
+            if hist.empty or len(hist) < 10:
+                continue
+
+            # Kör BÅDA lägena för varje aktie — breakout och konsolidering
+            for scan_mode in ['breakout', 'consol']:
+                result = analyze_ticker(ticker, hist, mode=scan_mode, days=days,
+                                        vol_factor=vol_factor, consol_days=consol_days, consol_range=consol_range)
+                if not result:
+                    continue
+
+                # Träff! Beräkna tekniska indikatorer (bara för träffar)
+                hist_s = hist.sort_index(ascending=False)
+                closes = hist_s["Close"].tolist()
+                highs  = hist_s["High"].tolist()
+                lows   = hist_s["Low"].tolist()
+                dates  = [d.strftime("%Y-%m-%d") for d in hist_s.index]
+                price_history = list(reversed(closes[:days+1]))
+
+                rsi        = calculate_rsi(closes)
+                ma50       = calculate_ma(closes, 50)
+                ma200      = calculate_ma(closes, 200)
+                ma50_pct   = round((closes[0] - ma50)  / ma50  * 100, 1) if ma50  else None
+                ma200_pct  = round((closes[0] - ma200) / ma200 * 100, 1) if ma200 else None
+                macd, macd_hist = calculate_macd(closes)
+                atr        = calculate_atr(highs, lows, closes)
+                sector     = get_ticker_sector(ticker)
+                sector_info = sector_status_cache.get(sector, {})
+                diff_days  = (date_cls.today() - hist_s.index[0].date()).days
+
+                results.append({
+                    "ticker":         ticker,
+                    "index":          "DOW" if ticker in DOW else "S&P 500",
+                    "price":          round(result["price"], 2),
+                    "high100":        round(result["high100"], 2),
+                    "change_pct":     round(result["change_pct"], 2),
+                    "today_vol":      result["today_vol"],
+                    "avg_vol":        result["avg_vol"],
+                    "vol_ratio":      round(result["vol_ratio"], 2),
+                    "rsi":            rsi,
+                    "ma50":           ma50,
+                    "ma200":          ma200,
+                    "ma50_pct":       ma50_pct,
+                    "ma200_pct":      ma200_pct,
+                    "macd":           macd,
+                    "macd_hist":      macd_hist,
+                    "atr":            atr,
+                    "sector":         sector,
+                    "sector_bullish": sector_info.get("bullish"),
+                    "scan_mode":      scan_mode,
+                    "date":           dates[0] if dates else "",
+                    "diff_days":      diff_days,
+                    "price_history":  price_history
+                })
+        except Exception as e:
+            print(f"scan_live fel for {ticker}: {e}")
+            continue
+
+    return jsonify({"results": results, "count": len(results), "scanned": len(tickers)})
 
 @app.route('/quote')
 def get_quote():
