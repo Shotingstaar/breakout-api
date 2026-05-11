@@ -231,7 +231,8 @@ def schedule_scan():
 
 @app.route('/')
 def index():
-    return jsonify({"status": "Breakout API körs!", "version": "1.8"})
+    init_db()  # Säkerställ att tabellen finns
+    return jsonify({"status": "Breakout API körs!", "version": "1.9"})
 
 @app.route('/stock')
 def get_stock():
