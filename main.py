@@ -37,6 +37,8 @@ def init_db():
                 vol_ratio FLOAT,
                 days INT,
                 rsi FLOAT,
+                sector VARCHAR(100),
+                sector_bullish BOOLEAN,
                 ma50 FLOAT,
                 ma200 FLOAT,
                 ma50_pct FLOAT,
@@ -48,7 +50,7 @@ def init_db():
             )
         ''')
         # Migration: lägg till nya kolumner om de saknas
-        for col in ['rsi FLOAT', 'ma50 FLOAT', 'ma200 FLOAT', 
+        for col in ['rsi FLOAT', 'sector VARCHAR(100)', 'sector_bullish BOOLEAN', 'ma50 FLOAT', 'ma200 FLOAT', 
                     'ma50_pct FLOAT', 'ma200_pct FLOAT',
                     'macd FLOAT', 'macd_hist FLOAT', 'atr FLOAT',
                     'scan_mode VARCHAR(20)']:
@@ -197,8 +199,13 @@ def analyze_ticker(ticker, hist, mode='breakout', days=100, vol_factor=1.5, cons
             atr   = calculate_atr(highs, lows, closes)
             ma50_pct  = round(((today_close - ma50) / ma50 * 100), 1) if ma50 else None
             ma200_pct = round(((today_close - ma200) / ma200 * 100), 1) if ma200 else None
+            sector = get_ticker_sector(ticker)
+            sector_info = sector_status_cache.get(sector, {})
+            sector_bullish = sector_info.get('bullish', None)
             return {
                 'mode': 'breakout',
+                'sector': sector,
+                'sector_bullish': sector_bullish,
                 'change_pct': change_pct,
                 'high100': high100,
                 'today_vol': today_vol,
@@ -233,8 +240,13 @@ def analyze_ticker(ticker, hist, mode='breakout', days=100, vol_factor=1.5, cons
             atr   = calculate_atr(highs, lows, closes)
             ma50_pct  = round(((today_close - ma50) / ma50 * 100), 1) if ma50 else None
             ma200_pct = round(((today_close - ma200) / ma200 * 100), 1) if ma200 else None
+            sector = get_ticker_sector(ticker)
+            sector_info = sector_status_cache.get(sector, {})
+            sector_bullish = sector_info.get('bullish', None)
             return {
                 'mode': 'consol',
+                'sector': sector,
+                'sector_bullish': sector_bullish,
                 'change_pct': change_pct,
                 'high100': consol_high,
                 'today_vol': today_vol,
@@ -253,9 +265,66 @@ def analyze_ticker(ticker, hist, mode='breakout', days=100, vol_factor=1.5, cons
             }
     return None
 
+# Sektors-ETF mapping
+SECTOR_ETFS = {
+    'XLK': 'Technology',
+    'XLV': 'Healthcare', 
+    'XLF': 'Financials',
+    'XLE': 'Energy',
+    'XLY': 'Consumer Cyclical',
+    'XLP': 'Consumer Defensive',
+    'XLI': 'Industrials',
+    'XLB': 'Basic Materials',
+    'XLRE': 'Real Estate',
+    'XLU': 'Utilities',
+    'XLC': 'Communication Services'
+}
+
+sector_status_cache = {}
+
+def get_sector_status():
+    """Hämta bullish/bearish status för varje sektor baserat på MA20"""
+    global sector_status_cache
+    try:
+        end   = datetime.today()
+        start = end - timedelta(days=40)
+        for etf, sector in SECTOR_ETFS.items():
+            try:
+                stock = yf.Ticker(etf)
+                hist  = stock.history(start=start.strftime('%Y-%m-%d'), end=end.strftime('%Y-%m-%d'))
+                if hist.empty or len(hist) < 20:
+                    continue
+                hist = hist.sort_index(ascending=False)
+                closes = hist['Close'].tolist()
+                price  = closes[0]
+                ma20   = sum(closes[:20]) / 20
+                sector_status_cache[sector] = {
+                    'bullish': price > ma20,
+                    'etf': etf,
+                    'price': round(price, 2),
+                    'ma20':  round(ma20, 2)
+                }
+            except:
+                continue
+        print(f"Sektorstatus uppdaterad: {len(sector_status_cache)} sektorer")
+    except Exception as e:
+        print(f"Sektor-fel: {e}")
+
+def get_ticker_sector(ticker):
+    """Hämta sektor för en aktie från yfinance"""
+    try:
+        stock = yf.Ticker(ticker)
+        info  = stock.info
+        return info.get('sector', 'Unknown')
+    except:
+        return 'Unknown'
+
 def run_auto_scan():
     """Kör automatisk skanning — både breakout och konsolidering"""
     print(f"Startar automatisk skanning {datetime.now()}")
+
+    # Hämta sektorstatus först
+    get_sector_status()
 
     all_tickers = list(set(SP500 + DOW))
     days       = 100
@@ -295,8 +364,8 @@ def run_auto_scan():
                             INSERT INTO scan_results
                             (scan_date, scan_time, scan_mode, ticker, index_name, price,
                              change_pct, high100, vol_today, vol_avg, vol_ratio, days,
-                             rsi, ma50, ma200, ma50_pct, ma200_pct, macd, macd_hist, atr)
-                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                             rsi, sector, sector_bullish, ma50, ma200, ma50_pct, ma200_pct, macd, macd_hist, atr)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                         ''', (
                             datetime.now().date(),
                             datetime.now().time(),
@@ -309,6 +378,8 @@ def run_auto_scan():
                             round(result['vol_ratio'], 2),
                             days,
                             result.get('rsi'),
+                            result.get('sector'),
+                            result.get('sector_bullish'),
                             result.get('ma50'),
                             result.get('ma200'),
                             result.get('ma50_pct'),
@@ -354,7 +425,7 @@ def schedule_scan():
 @app.route('/')
 def index():
     init_db()  # Säkerställ att tabellen finns
-    return jsonify({"status": "Breakout API körs!", "version": "2.2"})
+    return jsonify({"status": "Breakout API körs!", "version": "2.3"})
 
 @app.route('/stock')
 def get_stock():
@@ -364,7 +435,7 @@ def get_stock():
         return jsonify({"error": "Ingen ticker angiven"}), 400
     try:
         end   = datetime.today()
-        start = end - timedelta(days=days + 60)
+        start = end - timedelta(days=max(days, 200) + 60)  # Minst 260 dagar för MA200
         stock = yf.Ticker(ticker)
         hist  = stock.history(start=start.strftime('%Y-%m-%d'), end=end.strftime('%Y-%m-%d'), interval="1d")
         if hist.empty or len(hist) < 10:
@@ -395,7 +466,8 @@ def latest_scan():
         cur.execute('''
             SELECT ticker, index_name, price, change_pct, high100,
                    vol_today, vol_avg, vol_ratio, days, scan_date, scan_time,
-                   scan_mode, rsi, ma50, ma200, ma50_pct, ma200_pct, macd, macd_hist, atr
+                   scan_mode, rsi, ma50, ma200, ma50_pct, ma200_pct, macd, macd_hist, atr,
+                   sector, sector_bullish
             FROM scan_results 
             WHERE scan_date = (SELECT MAX(scan_date) FROM scan_results)
             ORDER BY vol_ratio DESC
@@ -424,7 +496,9 @@ def latest_scan():
             "ma200_pct": r[16],
             "macd":      r[17],
             "macd_hist": r[18],
-            "atr":       r[19]
+            "atr":       r[19],
+            "sector":    r[20],
+            "sector_bullish": r[21]
         } for r in rows]
         
         return jsonify({
