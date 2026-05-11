@@ -1,0 +1,10 @@
+name: Auto Scan
+on:
+  schedule:
+    - cron: '5 20 * * 1-5'  # 22:05 svensk tid (UTC+2)
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger scan
+        run: curl https://breakout-api-d8fh.onrender.com/trigger_scan
