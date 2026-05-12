@@ -670,7 +670,7 @@ def schedule_scan():
 @app.route('/')
 def index():
     init_db()  # Säkerställ att tabellen finns
-    return jsonify({"status": "Breakout API körs!", "version": "3.7", "endpoints": ["/stock", "/analyze", "/scan_live", "/latest_scan", "/trigger_scan", "/history"]})
+    return jsonify({"status": "Breakout API körs!", "version": "3.8", "endpoints": ["/stock", "/analyze", "/scan_live", "/latest_scan", "/trigger_scan", "/history"]})
 
 @app.route('/stock')
 def get_stock():
@@ -864,8 +864,16 @@ def scan_live():
             if hist is None:
                 continue
 
-            # Kör ALLA tre lägen för varje aktie
-            for scan_mode in ['breakout', 'consol', 'pre_breakout']:
+            # Kör det/de lägen som efterfrågas
+            if mode == 'pre_breakout':
+                modes_to_run = ['pre_breakout']
+            elif mode == 'consol':
+                modes_to_run = ['consol']
+            elif mode == 'breakout':
+                modes_to_run = ['breakout']
+            else:
+                modes_to_run = ['breakout', 'consol', 'pre_breakout']
+            for scan_mode in modes_to_run:
                 if scan_mode == 'pre_breakout':
                     result = analyze_pre_breakout(ticker, hist, days=days)
                 else:
