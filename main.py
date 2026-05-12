@@ -337,6 +337,18 @@ TICKER_SECTORS = {
 
 _sector_cache = {}
 
+def get_hist(ticker, start, end):
+    """Hämta historik från yfinance med retry och konsekvent sortering."""
+    for attempt in range(3):
+        try:
+            h = yf.Ticker(ticker).history(start=start, end=end, interval="1d")
+            if not h.empty and len(h) >= 10:
+                # Sortera alltid på samma sätt för konsekvent data
+                return h.sort_index(ascending=True)
+        except Exception as e:
+            print(f"yfinance retry {attempt+1} för {ticker}: {e}")
+    return None
+
 def get_ticker_sector(ticker):
     """Hämta sektor via yfinance med cache så vi inte anropar API:et upprepade gånger"""
     if ticker in _sector_cache:
@@ -380,16 +392,7 @@ def run_auto_scan():
                 end   = datetime.today()
                 start = end - timedelta(days=380)  # 380 dagar täcker MA200 (200 handelsdagar)
                 stock = yf.Ticker(ticker)
-                hist = None
-                for attempt in range(3):
-                    h = stock.history(
-                        start=start.strftime('%Y-%m-%d'),
-                        end=end.strftime('%Y-%m-%d'),
-                        interval="1d"
-                    )
-                    if not h.empty and len(h) >= 10:
-                        hist = h
-                        break
+                hist = get_hist(ticker, start.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d'))
                 if hist is None:
                     continue
 
@@ -466,7 +469,7 @@ def schedule_scan():
 @app.route('/')
 def index():
     init_db()  # Säkerställ att tabellen finns
-    return jsonify({"status": "Breakout API körs!", "version": "3.0", "endpoints": ["/stock", "/analyze", "/scan_live", "/latest_scan", "/trigger_scan", "/history"]})
+    return jsonify({"status": "Breakout API körs!", "version": "3.2", "endpoints": ["/stock", "/analyze", "/scan_live", "/latest_scan", "/trigger_scan", "/history"]})
 
 @app.route('/stock')
 def get_stock():
@@ -625,17 +628,7 @@ def scan_live():
 
     for ticker in tickers:
         try:
-            # Försök upp till 3 gånger om yfinance returnerar för lite data
-            hist = None
-            for attempt in range(3):
-                h = yf.Ticker(ticker).history(
-                    start=start.strftime('%Y-%m-%d'),
-                    end=end.strftime('%Y-%m-%d'),
-                    interval="1d"
-                )
-                if not h.empty and len(h) >= 10:
-                    hist = h
-                    break
+            hist = get_hist(ticker, start.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d'))
             if hist is None:
                 continue
 
