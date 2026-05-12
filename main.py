@@ -326,7 +326,7 @@ TICKER_SECTORS = {
     'AKAM':'Technology','GLW':'Technology','MNST':'Consumer Defensive',
     'GE':'Industrials','CAT':'Industrials','HON':'Industrials','RTX':'Industrials',
     'UPS':'Industrials','DE':'Industrials','BA':'Industrials','LMT':'Industrials',
-    'GS':'Financials','MS':'Financials','BLK':'Financials','SCHW':'Financials',
+    'GS':'Financials','MS':'Financials','BLK':'Financials','SCHW':'Financials','CBOE':'Financials',
     'AMGN':'Healthcare','GILD':'Healthcare','BIIB':'Healthcare','VRTX':'Healthcare',
     'CVS':'Healthcare','CI':'Healthcare','HUM':'Healthcare','ELV':'Healthcare',
     'XOM':'Energy','CVX':'Energy','COP':'Energy','SLB':'Energy','EOG':'Energy',
