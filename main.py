@@ -335,9 +335,25 @@ TICKER_SECTORS = {
     'LIN':'Basic Materials','APD':'Basic Materials','FCX':'Basic Materials',
 }
 
+_sector_cache = {}
+
 def get_ticker_sector(ticker):
-    """Hämta sektor för en aktie"""
-    return TICKER_SECTORS.get(ticker, 'Unknown')
+    """Hämta sektor via yfinance med cache så vi inte anropar API:et upprepade gånger"""
+    if ticker in _sector_cache:
+        return _sector_cache[ticker]
+    # Kolla hårdkodad karta först (snabbare)
+    if ticker in TICKER_SECTORS:
+        _sector_cache[ticker] = TICKER_SECTORS[ticker]
+        return TICKER_SECTORS[ticker]
+    # Annars hämta från yfinance
+    try:
+        info = yf.Ticker(ticker).info
+        sector = info.get('sector') or info.get('sectorDisp') or 'Unknown'
+        _sector_cache[ticker] = sector
+        return sector
+    except Exception:
+        _sector_cache[ticker] = 'Unknown'
+        return 'Unknown' 
 
 def run_auto_scan():
     """Kör automatisk skanning — både breakout och konsolidering"""
@@ -445,7 +461,7 @@ def schedule_scan():
 @app.route('/')
 def index():
     init_db()  # Säkerställ att tabellen finns
-    return jsonify({"status": "Breakout API körs!", "version": "2.7", "endpoints": ["/stock", "/analyze", "/scan_live", "/latest_scan", "/trigger_scan", "/history"]})
+    return jsonify({"status": "Breakout API körs!", "version": "2.9", "endpoints": ["/stock", "/analyze", "/scan_live", "/latest_scan", "/trigger_scan", "/history"]})
 
 @app.route('/stock')
 def get_stock():
