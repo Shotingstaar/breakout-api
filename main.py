@@ -215,6 +215,86 @@ def calculate_rsi(closes, period=14):
     rs = avg_gain / avg_loss
     return round(100 - (100 / (1 + rs)), 1)
 
+def analyze_pre_breakout(ticker, hist, days=100, proximity_pct=5.0, min_consol_days=10, min_rs=60):
+    """Pre-breakout: aktier nära 100-dagars högsta med volym-squeeze och RS-styrka.
+       Letar efter aktier som INTE brutit ut ännu men är på väg."""
+    hist = hist.sort_index(ascending=False)
+    closes  = hist['Close'].tolist()
+    highs   = hist['High'].tolist()
+    lows    = hist['Low'].tolist()
+    volumes = hist['Volume'].tolist()
+
+    if len(closes) < days + 2:
+        return None
+
+    today_close = closes[0]
+    prev_close  = closes[1]
+    change_pct  = ((today_close - prev_close) / prev_close) * 100
+    avg_vol_20  = sum(volumes[1:21]) / 20
+
+    # 1. Aktien ska vara nära 100-dagars högsta men INTE ha brutit ut
+    lookback = closes[1:days+1]
+    high100  = max(lookback)
+    pct_from_high = ((high100 - today_close) / high100) * 100
+    if pct_from_high > proximity_pct or today_close >= high100:
+        return None  # För långt ifrån, eller redan brutit ut
+
+    # 2. Konsolidering — aktien rör sig i tight range senaste dagarna
+    consol_closes = closes[:min_consol_days]
+    consol_high   = max(consol_closes)
+    consol_low    = min(consol_closes)
+    consol_range_pct = ((consol_high - consol_low) / consol_low) * 100
+    if consol_range_pct > 15:
+        return None  # För stor rörelse, inte konsolidering
+
+    # 3. Volym-squeeze — fallande volym under konsolideringen (bullish)
+    recent_vol  = sum(volumes[:min_consol_days]) / min_consol_days
+    earlier_vol = sum(volumes[min_consol_days:min_consol_days*2]) / min_consol_days if len(volumes) >= min_consol_days*2 else avg_vol_20
+    vol_squeeze = recent_vol < earlier_vol  # Volymen minskar = squeeze
+
+    # 4. RS-styrka
+    rsi = calculate_rsi(closes)
+    if rsi and rsi < min_rs:
+        return None  # För svag RS
+
+    # 5. Aktien ska vara över MA50 (bullish trend)
+    ma50  = calculate_ma(closes, 50)
+    ma200 = calculate_ma(closes, 200)
+    if ma50 and today_close < ma50 * 0.97:
+        return None  # Under MA50 — inte bullish
+
+    macd_line, macd_hist = calculate_macd(closes)
+    atr = calculate_atr(highs, lows, closes)
+    ma50_pct  = round(((today_close - ma50)  / ma50  * 100), 1) if ma50  else None
+    ma200_pct = round(((today_close - ma200) / ma200 * 100), 1) if ma200 else None
+    sector = get_ticker_sector(ticker)
+    sector_info    = sector_status_cache.get(sector, {})
+    sector_bullish = sector_info.get('bullish', None)
+
+    return {
+        'mode':           'pre_breakout',
+        'sector':         sector,
+        'sector_bullish': sector_bullish,
+        'change_pct':     change_pct,
+        'high100':        high100,
+        'pct_from_high':  round(pct_from_high, 1),
+        'consol_range':   round(consol_range_pct, 1),
+        'vol_squeeze':    vol_squeeze,
+        'today_vol':      volumes[0],
+        'avg_vol':        avg_vol_20,
+        'vol_ratio':      round(volumes[0] / avg_vol_20, 2),
+        'price':          today_close,
+        'rsi':            rsi,
+        'ma50':           ma50,
+        'ma200':          ma200,
+        'ma50_pct':       ma50_pct,
+        'ma200_pct':      ma200_pct,
+        'macd':           macd_line,
+        'macd_hist':      macd_hist,
+        'atr':            atr
+    }
+
+
 def analyze_ticker(ticker, hist, mode='breakout', days=100, vol_factor=1.5, consol_days=20, consol_range=10):
     """Analysera en aktie för breakout eller konsolidering"""
     hist = hist.sort_index(ascending=False)
@@ -590,7 +670,7 @@ def schedule_scan():
 @app.route('/')
 def index():
     init_db()  # Säkerställ att tabellen finns
-    return jsonify({"status": "Breakout API körs!", "version": "3.6", "endpoints": ["/stock", "/analyze", "/scan_live", "/latest_scan", "/trigger_scan", "/history"]})
+    return jsonify({"status": "Breakout API körs!", "version": "3.7", "endpoints": ["/stock", "/analyze", "/scan_live", "/latest_scan", "/trigger_scan", "/history"]})
 
 @app.route('/stock')
 def get_stock():
@@ -784,10 +864,13 @@ def scan_live():
             if hist is None:
                 continue
 
-            # Kör BÅDA lägena för varje aktie — breakout och konsolidering
-            for scan_mode in ['breakout', 'consol']:
-                result = analyze_ticker(ticker, hist, mode=scan_mode, days=days,
-                                        vol_factor=vol_factor, consol_days=consol_days, consol_range=consol_range)
+            # Kör ALLA tre lägen för varje aktie
+            for scan_mode in ['breakout', 'consol', 'pre_breakout']:
+                if scan_mode == 'pre_breakout':
+                    result = analyze_pre_breakout(ticker, hist, days=days)
+                else:
+                    result = analyze_ticker(ticker, hist, mode=scan_mode, days=days,
+                                            vol_factor=vol_factor, consol_days=consol_days, consol_range=consol_range)
                 if not result:
                     continue
 
