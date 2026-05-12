@@ -362,7 +362,7 @@ def run_auto_scan():
         for ticker in all_tickers:
             try:
                 end   = datetime.today()
-                start = end - timedelta(days=days + 60)
+                start = end - timedelta(days=380)  # 380 dagar täcker MA200 (200 handelsdagar)
                 stock = yf.Ticker(ticker)
                 hist  = stock.history(
                     start=start.strftime('%Y-%m-%d'),
@@ -445,7 +445,7 @@ def schedule_scan():
 @app.route('/')
 def index():
     init_db()  # Säkerställ att tabellen finns
-    return jsonify({"status": "Breakout API körs!", "version": "2.5", "endpoints": ["/stock", "/analyze", "/scan_live", "/latest_scan", "/trigger_scan", "/history"]})
+    return jsonify({"status": "Breakout API körs!", "version": "2.7", "endpoints": ["/stock", "/analyze", "/scan_live", "/latest_scan", "/trigger_scan", "/history"]})
 
 @app.route('/stock')
 def get_stock():
@@ -455,7 +455,7 @@ def get_stock():
         return jsonify({"error": "Ingen ticker angiven"}), 400
     try:
         end   = datetime.today()
-        start = end - timedelta(days=300)  # 300 dagar för att täcka MA200
+        start = end - timedelta(days=380)  # 380 dagar täcker MA200 (200 handelsdagar)
         stock = yf.Ticker(ticker)
         hist  = stock.history(start=start.strftime('%Y-%m-%d'), end=end.strftime('%Y-%m-%d'), interval="1d")
         if hist.empty or len(hist) < 10:
@@ -664,6 +664,32 @@ def scan_live():
             continue
 
     return jsonify({"results": results, "count": len(results), "scanned": len(tickers)})
+
+@app.route('/debug_ma')
+def debug_ma():
+    """Debug: visa hur mycket data vi hämtar och om MA200 kan beräknas"""
+    ticker = request.args.get('symbol', 'AAPL').upper()
+    try:
+        end   = datetime.today()
+        start = end - timedelta(days=380)
+        stock = yf.Ticker(ticker)
+        hist  = stock.history(start=start.strftime('%Y-%m-%d'), end=end.strftime('%Y-%m-%d'), interval="1d")
+        hist_s = hist.sort_index(ascending=False)
+        closes = hist_s['Close'].tolist()
+        ma50  = calculate_ma(closes, 50)
+        ma200 = calculate_ma(closes, 200)
+        return jsonify({
+            "ticker":          ticker,
+            "calendar_days":   380,
+            "trading_days":    len(closes),
+            "ma50":            ma50,
+            "ma200":           ma200,
+            "ma200_works":     ma200 is not None,
+            "latest_date":     hist_s.index[0].strftime('%Y-%m-%d') if len(hist_s) > 0 else None,
+            "oldest_date":     hist_s.index[-1].strftime('%Y-%m-%d') if len(hist_s) > 0 else None,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/quote')
 def get_quote():
