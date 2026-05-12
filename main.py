@@ -103,6 +103,50 @@ DOW = ['AAPL','MSFT','UNH','GS','HD','MCD','CAT','V','AMGN','TRV',
        'AXP','HON','JPM','IBM','BA','MMM','DIS','JNJ','CVX','MRK',
        'WMT','NKE','PG','CRM','CSCO','INTC','VZ','KO','DOW','WBA']
 
+STOCKHOLM_LARGE = [
+    'ERIC-B.ST','VOLV-B.ST','SAND.ST','SEB-A.ST','SWED-A.ST','HM-B.ST',
+    'ATCO-A.ST','ATCO-B.ST','SCA-B.ST','SKF-B.ST','SSAB-A.ST','SSAB-B.ST',
+    'INVE-A.ST','INVE-B.ST','NDA-SE.ST','ALFA.ST','ALIV-SDB.ST','ASSA-B.ST',
+    'AZN.ST','BOLS.ST','BOL.ST','CAST.ST','CLAS-B.ST','EKTA-B.ST',
+    'EPI-A.ST','ESSITY-B.ST','FABG.ST','GETI-B.ST','HEXA-B.ST','HUSQ-B.ST',
+    'INDU-A.ST','KINV-B.ST','LATO-B.ST','LIFCO-B.ST','LOOMIS.ST','LUNDBERGF.ST',
+    'NIBE-B.ST','NOKI-FI.ST','PEAB-B.ST','SAGA-B.ST','SAAB-B.ST','SECU-B.ST',
+    'SKA-B.ST','SOBI.ST','SWMA.ST','TELE2-B.ST','TELIA.ST','THULE.ST',
+    'TOBII.ST','TREL-B.ST','VNE.ST','WALL-B.ST','WIHL.ST','XANO-B.ST'
+]
+
+STOCKHOLM_MID = [
+    'AAK.ST','ADDV-B.ST','ALIG.ST','AMBEA.ST','ANOT.ST','AXFO.ST',
+    'BEIA-B.ST','BERG-B.ST','BILI-A.ST','BIOG-B.ST','BOOZT.ST','BUFAB.ST',
+    'BULL.ST','CATE.ST','COLL.ST','DIOS.ST','DUNI.ST','ELUX-B.ST',
+    'ENEA.ST','EPRO-B.ST','FAGC.ST','FASTG.ST','FPAR-A.ST','HANZA.ST',
+    'HEMS.ST','HEXP.ST','HUFV-A.ST','IAR-B.ST','IFS.ST','IPCO.ST',
+    'JM.ST','KLOV-B.ST','KNOW-B.ST','LUND-B.ST','MIPS.ST','MOMENT.ST',
+    'NOLA-B.ST','NOTE.ST','NYFOSA.ST','OEM-B.ST','ONCO.ST','OPCO.ST',
+    'PNDX-B.ST','RATO-B.ST','RECI-B.ST','RESURS.ST','RROS.ST','SAVO.ST',
+    'SFAB.ST','SGRO.ST','SHOT.ST','SINCH.ST','SWECO-B.ST','SYSR.ST',
+    'TROAX.ST','VBG-B.ST','VITR.ST','VOLCAR-B.ST','XVIVO.ST','ZOUND.ST'
+]
+
+STOCKHOLM_SMALL = [
+    'ACOU.ST','ADDT-B.ST','AGES-B.ST','AGRO.ST','AINO.ST','ALCA.ST',
+    'ALIF-B.ST','ALPH.ST','ALTS-B.ST','ANGL.ST','AOIL.ST','ATRLJ-B.ST',
+    'AVAV.ST','AVEG-B.ST','AXIC-A.ST','BEAM.ST','BEGR.ST','BFAB.ST',
+    'BIOT.ST','BNOX.ST','BONG.ST','BRIN-B.ST','BURE.ST','CARL-B.ST',
+    'CEVI.ST','CFISH.ST','CINT.ST','COOR.ST','CORE-B.ST','CRED-A.ST',
+    'CSEC.ST','CTM.ST','DEDI.ST','DFAB.ST','DIGI.ST','DIST.ST',
+    'DOMN.ST','DORO.ST','DRIL.ST','ELOS-B.ST','EMBA-B.ST','EMPIR-B.ST',
+    'EOLU-B.ST','EPAC.ST','EPED.ST','ERMA.ST','EUCI.ST','EVOJ-B.ST',
+    'EXEN.ST','FING-B.ST','FIRE.ST','FLAT-B.ST','FNOX.ST','FORB.ST',
+    'FORE.ST','FREE.ST','FWOR.ST','GCOR.ST','GENI.ST','GIAB.ST',
+    'GRAN.ST','GRNG.ST','HEBA-B.ST','HEND.ST','HIHI.ST','HMSO-B.ST',
+    'HOLM-B.ST','HORA.ST','HPOL-B.ST','HTRO.ST','HUGI.ST','IBOX.ST',
+    'IMMU.ST','IMPL.ST','IMPC.ST','INAC.ST','INDT.ST','INISS-B.ST'
+]
+
+# Alias
+STOCKHOLM = STOCKHOLM_LARGE + STOCKHOLM_MID
+
 def calculate_ma(closes, period):
     """Beräkna glidande medelvärde"""
     if len(closes) < period:
@@ -374,7 +418,7 @@ def run_auto_scan():
     # Hämta sektorstatus först
     get_sector_status()
 
-    all_tickers = list(set(SP500 + DOW))
+    all_tickers = list(set(SP500 + DOW + STOCKHOLM_LARGE + STOCKHOLM_MID))
     days       = 100
     vol_factor = 1.5
     consol_days  = 20
@@ -396,7 +440,11 @@ def run_auto_scan():
                 if hist is None:
                     continue
 
-                index_name = 'DOW' if ticker in DOW else 'S&P 500'
+                index_name = ('DOW'   if ticker in DOW
+                               else 'Large' if ticker in STOCKHOLM_LARGE
+                               else 'Mid'   if ticker in STOCKHOLM_MID
+                               else 'Small' if ticker in STOCKHOLM_SMALL
+                               else 'S&P 500')
 
                 # Kör båda skanningarna
                 for mode in ['breakout', 'consol']:
@@ -447,29 +495,102 @@ def run_auto_scan():
     except Exception as e:
         print(f"Auto-scan fel: {e}")
 
+def run_stockholm_scan():
+    """Kör skanning av enbart Stockholmsbörsen efter stängning 17:35"""
+    print(f"Startar Stockholmsskanning {datetime.now()}")
+    get_sector_status()
+    all_tickers  = list(set(STOCKHOLM_LARGE + STOCKHOLM_MID))
+    days         = 100
+    vol_factor   = 1.5
+    consol_days  = 20
+    consol_range = 10
+    found        = 0
+    try:
+        conn = get_db()
+        cur  = conn.cursor()
+        cur.execute("DELETE FROM scan_results WHERE scan_date = CURRENT_DATE AND ticker LIKE %s", ('%.ST',))
+        conn.commit()
+        for ticker in all_tickers:
+            try:
+                end   = datetime.today()
+                start = end - timedelta(days=380)
+                hist  = get_hist(ticker, start.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d'))
+                if hist is None:
+                    continue
+                index_name = 'Large' if ticker in STOCKHOLM_LARGE else 'Mid'
+                for mode in ['breakout', 'consol']:
+                    result = analyze_ticker(ticker, hist, mode=mode, days=days,
+                                            vol_factor=vol_factor, consol_days=consol_days,
+                                            consol_range=consol_range)
+                    if not result:
+                        continue
+                    hist_s = hist.sort_index(ascending=False)
+                    closes = hist_s['Close'].tolist()
+                    highs  = hist_s['High'].tolist()
+                    lows   = hist_s['Low'].tolist()
+                    rsi       = calculate_rsi(closes)
+                    ma50      = calculate_ma(closes, 50)
+                    ma200     = calculate_ma(closes, 200)
+                    ma50_pct  = round((closes[0]-ma50)/ma50*100,1)   if ma50  else None
+                    ma200_pct = round((closes[0]-ma200)/ma200*100,1) if ma200 else None
+                    macd_val, macd_hist_val = calculate_macd(closes)
+                    atr       = calculate_atr(highs, lows, closes)
+                    sector    = get_ticker_sector(ticker)
+                    sector_info = sector_status_cache.get(sector, {})
+                    sql = ("INSERT INTO scan_results "
+                           "(scan_date, scan_time, scan_mode, ticker, index_name, price, change_pct, "
+                           "high100, vol_today, vol_avg, vol_ratio, days, rsi, sector, sector_bullish, "
+                           "ma50, ma200, ma50_pct, ma200_pct, macd, macd_hist, atr) "
+                           "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)")
+                    cur.execute(sql, (
+                        datetime.now().date(), datetime.now().time(), mode, ticker, index_name,
+                        round(result['price'],2), round(result['change_pct'],2),
+                        round(result['high100'],2), result['today_vol'], result['avg_vol'],
+                        round(result['vol_ratio'],2), days, rsi, sector,
+                        sector_info.get('bullish'), ma50, ma200, ma50_pct, ma200_pct,
+                        macd_val, macd_hist_val, atr
+                    ))
+                    conn.commit()
+                    found += 1
+            except Exception as e:
+                print(f"Fel for {ticker}: {e}")
+                continue
+        cur.close()
+        conn.close()
+        print(f"Stockholmsskanning klar — {found} traffar")
+    except Exception as e:
+        print(f"Stockholmsskanning fel: {e}")
+
+
 def schedule_scan():
-    """Schemalägg skanning kl 22:05 varje vardag"""
+    """Schemalägg skanningar: 17:35 Stockholm, 22:05 USA"""
+    import time
     while True:
         now = datetime.now()
-        # Kl 22:05 svensk tid (UTC+2 sommartid = 20:05 UTC)
-        target = now.replace(hour=20, minute=5, second=0, microsecond=0)
-        if now >= target:
-            target += timedelta(days=1)
-        
-        wait_seconds = (target - now).total_seconds()
-        print(f"Nästa skanning om {wait_seconds/3600:.1f} timmar")
-        
-        import time
+        # Stockholm 17:35 svensk tid = 15:35 UTC (sommartid)
+        sto_target = now.replace(hour=15, minute=35, second=0, microsecond=0)
+        # USA 22:05 svensk tid = 20:05 UTC (sommartid)
+        usa_target = now.replace(hour=20, minute=5, second=0, microsecond=0)
+        if now >= sto_target:
+            sto_target += timedelta(days=1)
+        if now >= usa_target:
+            usa_target += timedelta(days=1)
+        next_target = min(sto_target, usa_target)
+        wait_seconds = (next_target - now).total_seconds()
+        print(f"Nasta skanning om {wait_seconds/3600:.1f} timmar ({next_target.strftime('%H:%M')} UTC)")
         time.sleep(wait_seconds)
-        
-        # Kör bara på vardagar
         if datetime.now().weekday() < 5:
-            run_auto_scan()
+            current = datetime.now()
+            sto_diff = abs((current - next_target).total_seconds())
+            if sto_diff < 120 and next_target.hour == 15:
+                run_stockholm_scan()
+            else:
+                run_auto_scan()
 
 @app.route('/')
 def index():
     init_db()  # Säkerställ att tabellen finns
-    return jsonify({"status": "Breakout API körs!", "version": "3.3", "endpoints": ["/stock", "/analyze", "/scan_live", "/latest_scan", "/trigger_scan", "/history"]})
+    return jsonify({"status": "Breakout API körs!", "version": "3.6", "endpoints": ["/stock", "/analyze", "/scan_live", "/latest_scan", "/trigger_scan", "/history"]})
 
 @app.route('/stock')
 def get_stock():
@@ -691,7 +812,11 @@ def scan_live():
 
                 results.append({
                     "ticker":         ticker,
-                    "index":          "DOW" if ticker in DOW else "S&P 500",
+                    "index":          ("DOW" if ticker in DOW
+                                          else "Large" if ticker in STOCKHOLM_LARGE
+                                          else "Mid"   if ticker in STOCKHOLM_MID
+                                          else "Small" if ticker in STOCKHOLM_SMALL
+                                          else "S&P 500"),
                     "price":          round(result["price"], 2),
                     "high100":        round(result["high100"], 2),
                     "change_pct":     round(result["change_pct"], 2),
