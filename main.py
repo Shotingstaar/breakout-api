@@ -380,12 +380,17 @@ def run_auto_scan():
                 end   = datetime.today()
                 start = end - timedelta(days=380)  # 380 dagar täcker MA200 (200 handelsdagar)
                 stock = yf.Ticker(ticker)
-                hist  = stock.history(
-                    start=start.strftime('%Y-%m-%d'),
-                    end=end.strftime('%Y-%m-%d'),
-                    interval="1d"
-                )
-                if hist.empty or len(hist) < 10:
+                hist = None
+                for attempt in range(3):
+                    h = stock.history(
+                        start=start.strftime('%Y-%m-%d'),
+                        end=end.strftime('%Y-%m-%d'),
+                        interval="1d"
+                    )
+                    if not h.empty and len(h) >= 10:
+                        hist = h
+                        break
+                if hist is None:
                     continue
 
                 index_name = 'DOW' if ticker in DOW else 'S&P 500'
@@ -461,7 +466,7 @@ def schedule_scan():
 @app.route('/')
 def index():
     init_db()  # Säkerställ att tabellen finns
-    return jsonify({"status": "Breakout API körs!", "version": "2.9", "endpoints": ["/stock", "/analyze", "/scan_live", "/latest_scan", "/trigger_scan", "/history"]})
+    return jsonify({"status": "Breakout API körs!", "version": "3.0", "endpoints": ["/stock", "/analyze", "/scan_live", "/latest_scan", "/trigger_scan", "/history"]})
 
 @app.route('/stock')
 def get_stock():
@@ -620,9 +625,18 @@ def scan_live():
 
     for ticker in tickers:
         try:
-            stock = yf.Ticker(ticker)
-            hist  = stock.history(start=start.strftime('%Y-%m-%d'), end=end.strftime('%Y-%m-%d'), interval="1d")
-            if hist.empty or len(hist) < 10:
+            # Försök upp till 3 gånger om yfinance returnerar för lite data
+            hist = None
+            for attempt in range(3):
+                h = yf.Ticker(ticker).history(
+                    start=start.strftime('%Y-%m-%d'),
+                    end=end.strftime('%Y-%m-%d'),
+                    interval="1d"
+                )
+                if not h.empty and len(h) >= 10:
+                    hist = h
+                    break
+            if hist is None:
                 continue
 
             # Kör BÅDA lägena för varje aktie — breakout och konsolidering
