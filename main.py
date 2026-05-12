@@ -469,7 +469,7 @@ def schedule_scan():
 @app.route('/')
 def index():
     init_db()  # Säkerställ att tabellen finns
-    return jsonify({"status": "Breakout API körs!", "version": "3.2", "endpoints": ["/stock", "/analyze", "/scan_live", "/latest_scan", "/trigger_scan", "/history"]})
+    return jsonify({"status": "Breakout API körs!", "version": "3.3", "endpoints": ["/stock", "/analyze", "/scan_live", "/latest_scan", "/trigger_scan", "/history"]})
 
 @app.route('/stock')
 def get_stock():
@@ -555,21 +555,52 @@ def latest_scan():
 
 @app.route('/history')
 def get_history():
-    """Hämta historik över skanningsdagar"""
+    """Hämta historik — en rad per skanningsdag med alla träffar"""
     try:
         conn = get_db()
         cur = conn.cursor()
+        # Hämta unika skanningsdagar
         cur.execute('''
-            SELECT scan_date, COUNT(*) as total, scan_mode
-            FROM scan_results 
-            GROUP BY scan_date, scan_mode
-            ORDER BY scan_date DESC
+            SELECT DISTINCT scan_date, scan_time
+            FROM scan_results
+            ORDER BY scan_date DESC, scan_time DESC
             LIMIT 30
         ''')
-        rows = cur.fetchall()
+        days = cur.fetchall()
+        history = []
+        for scan_date, scan_time in days:
+            # Hämta alla träffar för denna dag
+            cur.execute('''
+                SELECT DISTINCT ON (ticker) ticker, index_name, price, change_pct, high100,
+                       vol_today, vol_avg, vol_ratio, days, rsi, ma50, ma200,
+                       ma50_pct, ma200_pct, macd, macd_hist, atr, sector, sector_bullish, scan_mode
+                FROM scan_results
+                WHERE scan_date = %s
+                ORDER BY ticker, scan_time DESC
+            ''', (scan_date,))
+            results = cur.fetchall()
+            cols = ['ticker','index','price','change','high100','todayVol','avgVol','volRatio',
+                    'days','rsi','ma50','ma200','ma50_pct','ma200_pct','macd','macd_hist',
+                    'atr','sector','sector_bullish','scan_mode']
+            mapped = []
+            for r in results:
+                d = dict(zip(cols, r))
+                d['price']   = float(d['price']) if d['price'] else None
+                d['change']  = float(d['change']) if d['change'] else None
+                d['high100'] = float(d['high100']) if d['high100'] else None
+                d['isConsol'] = d['scan_mode'] == 'consol'
+                d['dateStr'] = str(scan_date)
+                d['badge']   = 'badge-dj' if d['index'] == 'DOW' else 'badge-sp'
+                mapped.append(d)
+            history.append({
+                "scan_date":   str(scan_date),
+                "scan_time":   str(scan_time)[:5] if scan_time else '',
+                "total_found": len(mapped),
+                "results":     mapped
+            })
         cur.close()
         conn.close()
-        return jsonify({"history": [{"date": str(r[0]), "count": r[1], "mode": r[2]} for r in rows]})
+        return jsonify({"history": history})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
